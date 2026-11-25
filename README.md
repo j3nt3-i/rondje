@@ -68,7 +68,7 @@ warmup 10 min z2
 cooldown
 ```
 
-In an event, each workout shows "Toegevoegd" once it is scheduled, and "Op Watch" on its day (the Watch shows a scheduled workout in the Workout app on its own day; the Watch app on the iPhone lists the coming 7 days). Swipe a workout left for "Op Watch" or "Van Watch". In an event, `...` > "Zet alles op Watch" adds every upcoming workout next to what is already there.
+In an event, a workout says "Op Watch" on its day once it is scheduled (the Watch shows a scheduled workout in the Workout app on its own day; the Watch app on the iPhone lists the coming 7 days), and "Bij workouts" when it was added without a date. The workout's own screen says whether and when it shows up. Swipe a workout left for "Op Watch" or "Van Watch". In an event, `...` > "Zet alles op Watch" adds every upcoming workout next to what is already there.
 
 In a workout, "Voeg toe aan je workouts" opens Apple's preview; adding there puts it straight in your own workouts on the Watch, without a date. Apple does not tell the app whether you tapped add, so closing the preview counts as added and the list shows "Bij workouts". Tap "Weg" in the workout to undo.
 

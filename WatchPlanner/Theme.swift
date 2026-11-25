@@ -254,10 +254,8 @@ struct WorkoutRow: View {
         if custom, ScheduleDates.watchVisibleFrom(workout.date) != nil || onWatch != true {
             return ("Bij workouts", Theme.accent)
         }
-        guard onWatch == true else { return nil }
-        if ScheduleDates.watchVisibleFrom(workout.date) != nil {
-            return ("Toegevoegd", Theme.accent)
-        }
+        // Added workouts for later need no label; only today's says it is on the Watch.
+        guard onWatch == true, ScheduleDates.watchVisibleFrom(workout.date) == nil else { return nil }
         return ("Op Watch", Theme.accent)
     }
 }
