@@ -580,6 +580,8 @@ struct NewGoalView: View {
             reply(t, explain(step))
             return
         }
+        // Free answers take anything, so first check it is not about an earlier question.
+        if [.level, .aim, .wishes].contains(step), mentionsEarlier(t), await correctWithAI(t) { return }
         switch step {
         case .name:
             answerName(t, preset: false)
@@ -593,7 +595,7 @@ struct NewGoalView: View {
                 let ai = await understand { await WorkoutAI.readTrail(t) }
                 r = (ai?.km.map { String(format: "%g", $0).replacingOccurrences(of: ".", with: ",") }, ai?.up.map(String.init))
             }
-            guard r.km != nil || r.up != nil else { reply(t, explain(step)); return }
+            guard r.km != nil || r.up != nil else { await notPlaced(t); return }
             trailKm = r.km ?? ""
             trailUp = r.up ?? ""
         case .date where NewGoalView.saysNo(t):
@@ -601,7 +603,7 @@ struct NewGoalView: View {
         case .date:
             var parsed = NewGoalView.date(from: t) ?? NewGoalView.dateInText(t)
             if parsed == nil && NewGoalView.mentionsDate(t) { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
-            guard let d = parsed else { reply(t, explain(step)); return }
+            guard let d = parsed else { await notPlaced(t); return }
             bigDay = d
             hasDate = true
         case .method:
@@ -609,11 +611,11 @@ struct NewGoalView: View {
             if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
             else if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
             else if ["ja", "graag", "help", "maak", "ai", "claude", "chatgpt", "prima", "oké", "ok"].contains(where: l.contains) { method = .ai }
-            else { reply(t, explain(step)); return }
+            else { await notPlaced(t); return }
         case .perWeek:
             var parsed = NewGoalView.count(from: t)
             if parsed == nil && NewGoalView.mentionsNumber(t) { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
-            guard let n = parsed, (1...7).contains(n) else { reply(t, explain(step)); return }
+            guard let n = parsed, (1...7).contains(n) else { await notPlaced(t); return }
             perWeek = n
         case .level:
             level = t
@@ -674,20 +676,97 @@ struct NewGoalView: View {
         }
 
         // "De datum klopt niet" without a new date: ask that question again, then carry on here.
-        let topics: [(Step, [String])] = [
-            (.date, ["datum", "dag", "wanneer"]),
-            (.perWeek, ["per week", "hoe vaak", "keer"]),
-            (.name, ["naam", "heet"]),
-            (.trail, ["afstand", "hoogte", "kilometer"]),
-            (.level, ["niveau", "lukt"]),
-            (.aim, ["bereiken"]),
-            (.wishes, ["wens"]),
-        ]
         if let target = topics.first(where: { done.contains($0.0) && $0.1.contains(where: l.contains) })?.0 {
             jump(to: target)
             return "Geen probleem, dan pas ik dat aan."
         }
         return nil
+    }
+
+    private let topics: [(Step, [String])] = [
+        (.date, ["datum", "dag", "wanneer"]),
+        (.perWeek, ["per week", "hoe vaak", "keer"]),
+        (.name, ["naam", "heet"]),
+        (.trail, ["afstand", "hoogte", "kilometer"]),
+        (.level, ["niveau", "lukt"]),
+        (.aim, ["bereiken"]),
+        (.wishes, ["wens"]),
+    ]
+
+    /// Words or a date that point at an earlier question.
+    private func mentionsEarlier(_ t: String) -> Bool {
+        let l = t.lowercased()
+        let done = Set(pastSteps)
+        return NewGoalView.dateInText(t) != nil || topics.contains { done.contains($0.0) && $0.1.contains(where: l.contains) }
+    }
+
+    /// The rules could not read this as an answer. Maybe it changes an earlier one;
+    /// otherwise Rondje explains the question.
+    private func notPlaced(_ t: String) async {
+        if await correctWithAI(t) { return }
+        reply(t, explain(step))
+    }
+
+    private static let aiFields: [Step: WorkoutAI.Field] = [
+        .name: .goalName, .trail: .trail, .date: .raceDate, .perWeek: .runsPerWeek, .level: .level, .aim: .aim, .wishes: .wishes,
+    ]
+
+    /// Apple Intelligence decides whether the message changes an earlier answer, and which one.
+    /// The rules then read the new value. Without a usable new value, Rondje asks that question again.
+    /// Returns false when it is not a correction, or Apple Intelligence is off.
+    private func correctWithAI(_ t: String) async -> Bool {
+        let earlier = pastSteps.compactMap { s in NewGoalView.aiFields[s].map { ($0, answer(s)) } }
+        guard let found = await understand({ await WorkoutAI.readCorrection(t, question: ask(step), earlier: earlier) }) ?? nil,
+              let target = NewGoalView.aiFields.first(where: { $0.value == found.field })?.key,
+              target != step, pastSteps.contains(target) else { return false }
+        if let said = await change(target, to: found.value) {
+            reply(t, said)
+        } else {
+            jump(to: target)
+            reply(t, "Geen probleem, dan pas ik dat aan.")
+        }
+        return true
+    }
+
+    /// Puts a new value in an earlier answer. Nil when it cannot be read, or is the same as before.
+    private func change(_ s: Step, to value: String) async -> String? {
+        guard !value.isEmpty else { return nil }
+        let before = answer(s)
+        switch s {
+        case .date:
+            var d = NewGoalView.date(from: value) ?? NewGoalView.dateInText(value)
+            if d == nil && NewGoalView.mentionsDate(value) { d = await WorkoutAI.readDate(value) }
+            guard let d else { return nil }
+            bigDay = d
+            hasDate = true
+        case .perWeek:
+            guard let n = NewGoalView.count(from: value), (1...7).contains(n) else { return nil }
+            perWeek = n
+        case .trail:
+            let r = NewGoalView.trail(from: value)
+            guard r.km != nil || r.up != nil else { return nil }
+            if let km = r.km { trailKm = km }
+            if let up = r.up { trailUp = up }
+        case .name:
+            let match = goalPresets.first { $0.title.lowercased() == value.lowercased() }
+            ownName = match == nil
+            name = match?.title ?? value
+        case .level:
+            level = value
+        case .aim:
+            ownAimOn = true
+            ownAim = value
+        case .wishes:
+            ownWish = value
+        default:
+            return nil
+        }
+        guard answer(s) != before else { return nil }
+        switch s {
+        case .date: return "Aangepast: de grote dag is nu \(answer(.date).lowercased())."
+        case .name: return "Aangepast: je doel heet nu \(trimmedName)."
+        default: return "Aangepast: \(answer(s))."
+        }
     }
 
     /// Empties the chat field, and again just after: the keyboard's autocorrect can put the

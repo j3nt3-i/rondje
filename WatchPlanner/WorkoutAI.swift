@@ -148,6 +148,46 @@ enum WorkoutAI {
         return (nil, nil)
     }
 
+    /// An earlier answer in the goal chat that a message can change.
+    enum Field: String, CaseIterable {
+        case goalName = "goal name", raceDate = "race date", runsPerWeek = "runs per week", trail = "trail distance and climb",
+             level = "current level", aim = "what they want to reach", wishes = "wishes for the schedule"
+    }
+
+    /// Whether a chat message changes an earlier answer: "de datum klopt niet" -> (raceDate, "").
+    /// The value is in the runner's own words; the rules in the chat read it. Nil when it is
+    /// an answer, a question back, or anything else.
+    static func readCorrection(_ message: String, question: String, earlier: [(Field, String)]) async -> (field: Field, value: String)? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *), isAvailable, !earlier.isEmpty {
+            let answers = earlier.map { "\($0.0.rawValue): \($0.1)" }.joined(separator: "\n")
+            let instructions = """
+            You are the chat in a running app that asks a runner questions one by one to set up a training goal.
+            Earlier answers:
+            \(answers)
+            Current question: "\(question)"
+            Classify the runner's latest message.
+            """
+            guard let r = try? await LanguageModelSession(instructions: instructions)
+                    .respond(to: "Message: \"\(message)\"", generating: GenIntent.self, options: GenerationOptions(temperature: 0)).content,
+                  r.kind == .correction else { return nil }
+            let field: Field? = switch r.field {
+            case .goalName: .goalName
+            case .raceDate: .raceDate
+            case .runsPerWeek: .runsPerWeek
+            case .trailDetails: .trail
+            case .level: .level
+            case .aim: .aim
+            case .wishes: .wishes
+            case .none: nil
+            }
+            guard let field, earlier.contains(where: { $0.0 == field }) else { return nil }
+            return (field, r.newValue.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+        #endif
+        return nil
+    }
+
     private static func cleanOutput(_ text: String) -> String {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -225,5 +265,24 @@ struct GenTrail {
     var kilometers: Double
     @Guide(description: "Elevation gain in meters, 0 if not mentioned")
     var elevationMeters: Int
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+enum GenKind { case answer, correction, questionBack, other }
+
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+enum GenField { case goalName, raceDate, runsPerWeek, trailDetails, level, aim, wishes, none }
+
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+struct GenIntent {
+    @Guide(description: "answer: answers the current question. correction: changes an earlier answer. questionBack: asks what the question means. other: anything else.")
+    var kind: GenKind
+    @Guide(description: "For a correction: which earlier answer it changes. Otherwise none.")
+    var field: GenField
+    @Guide(description: "For a correction: the new value in the runner's words, empty if they did not give one.")
+    var newValue: String
 }
 #endif
