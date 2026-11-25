@@ -14,7 +14,7 @@ struct NewGoalView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
 
-    private enum Step { case name, date, method, perWeek, level, aim, wishes, copy, openApp, paste, review }
+    private enum Step { case name, trail, date, method, perWeek, level, aim, wishes, copy, openApp, paste, review }
     private enum Method { case ai, paste, later }
 
     @State private var step: Step = .name
@@ -90,10 +90,11 @@ struct NewGoalView: View {
     // MARK: - Flow
 
     private var path: [Step] {
+        let start: [Step] = isTrail ? [.name, .trail, .date, .method] : [.name, .date, .method]
         switch method {
-        case .ai: return [.name, .date, .method, .perWeek, .level, .aim, .wishes, .copy, .openApp, .paste, .review]
-        case .paste: return [.name, .date, .method, .paste, .review]
-        case .later: return [.name, .date, .method, .review]
+        case .ai: return start + [.perWeek, .level, .aim, .wishes, .copy, .openApp, .paste, .review]
+        case .paste: return start + [.paste, .review]
+        case .later: return start + [.review]
         }
     }
 
@@ -154,14 +155,15 @@ struct NewGoalView: View {
                     nameFocused = true
                 }
             }
-            if isTrail {
-                HStack(spacing: 12) {
-                    numberField("Afstand", "15", unit: "km", text: $trailKm, keyboard: .decimalPad)
-                    numberField("Hoogtemeters", "400", unit: "m", text: $trailUp, keyboard: .numberPad)
-                }
-            }
             if !trimmedName.isEmpty, store.event(named: trimmedName) != nil {
                 Text("Er is al een doel met deze naam. Kies een andere naam.").foregroundStyle(.orange)
+            }
+
+        case .trail:
+            header("Hoe ziet je trail eruit?", "Afstand en hoogtemeters. Weet je het nog niet? Sla het over.")
+            HStack(spacing: 12) {
+                numberField("Afstand", "15", unit: "km", text: $trailKm, keyboard: .decimalPad)
+                numberField("Hoogtemeters", "400", unit: "m", text: $trailUp, keyboard: .numberPad)
             }
 
         case .date:
@@ -417,6 +419,8 @@ struct NewGoalView: View {
             bar { bigButton("Kopieer prompt", "doc.on.doc") { UIPasteboard.general.string = prompt; goNext() } }
         case .wishes:
             bar { bigButton(wishes.isEmpty && ownWish.isEmpty ? "Overslaan" : "Volgende", nil) { goNext() } }
+        case .trail:
+            bar { bigButton(trailKm.isEmpty && trailUp.isEmpty ? "Overslaan" : "Volgende", nil) { goNext() } }
         case .date:
             bar {
                 VStack(spacing: 10) {
