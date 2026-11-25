@@ -74,6 +74,11 @@ struct EventView: View {
                                     Task { await planner.remove([w], time: event.defaultTime, events: store.events) }
                                 }
                                 .tint(.gray)
+                            } else if !ScheduleDates.isPast(w.date) {
+                                Button("Op Watch", systemImage: "applewatch") {
+                                    Task { await planner.put([w], time: event.defaultTime, title: "Toegevoegd", events: store.events) }
+                                }
+                                .tint(Theme.accent)
                             }
                         }
                     }
@@ -85,6 +90,10 @@ struct EventView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
+                    Button("Zet alles op Watch", systemImage: "applewatch") {
+                        Task { await planner.put(event.workouts, time: event.defaultTime, title: "\(event.name) toegevoegd", events: store.events) }
+                    }
+                    .disabled(event.workouts.allSatisfy { ScheduleDates.isPast($0.date) || planner.onWatchIDs.contains($0.id) })
                     Button("Wijzig naam en datum", systemImage: "pencil") { showEdit = true }
                     Button("Kopieer als tekst", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = WorkoutText.programText(for: event)
@@ -120,32 +129,8 @@ struct EventView: View {
 
     // MARK: - Week header
 
-    @ViewBuilder
     private func weekHeader(_ week: Week, event: TrainingSchedule) -> some View {
-        let upcoming = week.workouts.filter { !ScheduleDates.isPast($0.date) }
-        let onWatch = upcoming.filter { planner.onWatchIDs.contains($0.id) }
-        let title = "Week van \(Format.dayMonth(week.start))"
-
-        HStack {
-            Text(title)
-            Spacer()
-            if !upcoming.isEmpty {
-                if onWatch.count < upcoming.count {
-                    Button {
-                        Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) toegevoegd", events: store.events) }
-                    } label: {
-                        Text(onWatch.isEmpty ? "Voeg week toe" : "Voeg rest toe")
-                            .font(.caption.bold())
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Theme.accent, in: Capsule())
-                    }
-                    .disabled(planner.isBusy)
-                }
-            }
-        }
-        .textCase(nil)
+        Text("Week van \(Format.dayMonth(week.start))")
     }
 
     // MARK: - Actions
