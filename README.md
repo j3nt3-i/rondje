@@ -66,7 +66,7 @@ warmup 10 min z2
 cooldown
 ```
 
-In an event, each workout shows its Watch status: "Op Watch" (today), "Toegevoegd, op Watch vanaf <day>" (the Watch shows scheduled workouts for the coming 7 days), "Niet op Watch" or "Geweest". Each week has a button "Voeg week toe" that adds just that week next to what is there; once added, "Week toegevoegd" lets you add it again or take it off.
+In an event, each workout shows "Op Watch", or "vanaf <day>" when it shows up on the Watch later (the Watch shows the coming 7 days). Each week has a button "Voeg week toe" that adds just that week next to what is there; once added, "Week toegevoegd" lets you add it again or take it off.
 
 
 ## Check that it worked

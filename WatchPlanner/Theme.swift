@@ -215,49 +215,43 @@ struct WorkoutRow: View {
     let workout: PlannedWorkout
     let kind: WorkoutKind
     let isPast: Bool
-    /// Nil hides the Watch status (for example in the import preview).
+    /// Nil hides the Watch status (for example in a preview).
     var onWatch: Bool? = nil
 
     var body: some View {
         HStack(spacing: 12) {
-            KindIcon(kind: kind)
+            KindIcon(kind: kind, size: 38)
             VStack(alignment: .leading, spacing: 2) {
-                Text(workout.name)
+                Text(displayName)
                     .font(.headline)
+                    .lineLimit(1)
                 Text(Format.shortDay(workout.date))
                     .font(.subheadline)
-                    .foregroundStyle(kind.color)
-                Text(WorkoutText.text(for: workout, zones: false, separator: " · "))
-                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
             }
-            Spacer(minLength: 4)
+            Spacer(minLength: 8)
             if let status {
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text(status.title)
-                        .font(.caption.bold())
-                        .foregroundStyle(status.color)
-                    if let detail = status.detail {
-                        Text(detail)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .multilineTextAlignment(.trailing)
+                Text(status.text)
+                    .font(.caption.bold())
+                    .foregroundStyle(status.color)
             }
         }
-        .opacity(isPast ? 0.45 : 1)
-        .padding(.vertical, 2)
+        .opacity(isPast ? 0.4 : 1)
     }
 
-    private var status: (title: String, detail: String?, color: Color)? {
-        if isPast { return ("Geweest", nil, .secondary) }
-        guard let onWatch else { return nil }
-        guard onWatch else { return ("Niet op Watch", nil, .secondary) }
+    /// "Di 40 min" shows as "40 min", since the day is right below it.
+    private var displayName: String {
+        let weekday = Format.shortDay(workout.date).split(separator: " ").first.map(String.init) ?? ""
+        guard !weekday.isEmpty, workout.name.lowercased().hasPrefix(weekday.lowercased() + " ") else { return workout.name }
+        let rest = workout.name.dropFirst(weekday.count + 1)
+        return rest.prefix(1).uppercased() + rest.dropFirst()
+    }
+
+    private var status: (text: String, color: Color)? {
+        guard !isPast, onWatch == true else { return nil }
         if let from = ScheduleDates.watchVisibleFrom(workout.date) {
-            return ("Toegevoegd", "op Watch vanaf \(Format.shortDay(from).lowercased())", Theme.accent)
+            return ("vanaf \(Format.shortDay(from).lowercased())", .secondary)
         }
-        return ("Op Watch", nil, Theme.accent)
+        return ("Op Watch", Theme.accent)
     }
 }
