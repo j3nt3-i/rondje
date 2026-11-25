@@ -12,31 +12,25 @@ Xcode lives in `~/Downloads/Xcode.app` on this Mac, so point the tools at it:
 export DEVELOPER_DIR="$HOME/Downloads/Xcode.app/Contents/Developer"
 ```
 
-Generate the project (fill in your team ID, see below):
+Connect and unlock the iPhone, then generate the project:
 
 ```bash
-TEAM_ID=XXXXXXXXXX xcodegen generate
+xcodegen generate
 ```
 
-Build and sign:
+Build and sign (this also renews the 7-day profile):
 
 ```bash
-xcodebuild -project WatchPlanner.xcodeproj -scheme WatchPlanner -destination generic/platform=iOS -derivedDataPath build -allowProvisioningUpdates build
-```
-
-Find your iPhone's identifier (phone connected and unlocked):
-
-```bash
-xcrun devicectl list devices
+xcodebuild -project WatchPlanner.xcodeproj -scheme WatchPlanner -destination id=00008150-00112C3A3693C01C -derivedDataPath build -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 ```
 
 Install:
 
 ```bash
-xcrun devicectl device install app --device <identifier> build/Build/Products/Debug-iphoneos/WatchPlanner.app
+xcrun devicectl device install app --device 00008150-00112C3A3693C01C build/Build/Products/Debug-iphoneos/WatchPlanner.app
 ```
 
-Your team ID is in Xcode > Settings > Accounts > your Apple ID > Personal Team, or in `security find-identity -v -p codesigning` (the code in brackets after "Apple Development").
+The team ID (`YZV5DX4L6Y`, Personal Team) is set in `project.yml`. `00008150-00112C3A3693C01C` is the iPhone 17 Pro; for another phone, find its identifier with `xcrun devicectl list devices`.
 
 ## First install on the phone
 
