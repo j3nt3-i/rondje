@@ -57,7 +57,7 @@ struct Message: Identifiable {
 extension Message {
     init(_ r: ScheduleResult) {
         var lines = ["\(r.scheduled) trainingen toegevoegd.",
-                     "Elke training staat op de dag zelf bovenaan in Workout op je Watch, in het blok Rondje."]
+                     "Op je Watch zie je in Workout, in het blok Rondje, de trainingen van de komende 7 dagen. Latere komen er vanzelf bij."]
         if r.skippedPast > 0 {
             lines.append("\(r.skippedPast) overgeslagen omdat ze al geweest zijn.")
         }

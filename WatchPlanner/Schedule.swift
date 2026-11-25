@@ -79,6 +79,15 @@ enum ScheduleDates {
         return c
     }
 
+    /// The Watch shows scheduled workouts for the coming 7 days. Returns the day a
+    /// later workout shows up, or nil when it is visible already.
+    static func watchVisibleFrom(_ day: String, now: Date = .now) -> Date? {
+        guard let date = self.day(day),
+              let from = calendar.date(byAdding: .day, value: -7, to: date),
+              from > calendar.startOfDay(for: now) else { return nil }
+        return from
+    }
+
     static func isPast(_ day: String, now: Date = .now) -> Bool {
         guard let date = self.day(day) else { return true }
         return date < calendar.startOfDay(for: now)

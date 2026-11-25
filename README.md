@@ -66,11 +66,11 @@ warmup 10 min z2
 cooldown
 ```
 
-In an event, each workout shows its Watch status: "Op Watch" (today), "Toegevoegd, beschikbaar <day>" (a scheduled workout appears in the Workout app on its own day), "Niet op Watch" or "Geweest". Each week has a button "Voeg week toe" that adds just that week next to what is there; once added, "Week toegevoegd" lets you add it again or take it off.
+In an event, each workout shows its Watch status: "Op Watch" (today), "Toegevoegd, op Watch vanaf <day>" (the Watch shows scheduled workouts for the coming 7 days), "Niet op Watch" or "Geweest". Each week has a button "Voeg week toe" that adds just that week next to what is there; once added, "Week toegevoegd" lets you add it again or take it off.
 
 
 ## Check that it worked
 
-- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with today's workout. Scheduled workouts show up there on their own day; on a day without one it says "No workouts". To check, add a short test workout for today.
-- In the app: each workout in an event shows "Op Watch" or "Toegevoegd, beschikbaar <day>" once the iPhone handed it to WorkoutKit. The app cannot see the Watch itself.
+- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with the workouts of the coming 7 days. Later ones show up by themselves.
+- In the app: each workout in an event shows "Op Watch" or "Toegevoegd, op Watch vanaf <day>" once the iPhone handed it to WorkoutKit. The app cannot see the Watch itself.
 - If nothing shows up: keep the Watch unlocked and near the iPhone, check the Watch runs watchOS 10 or later, and check that scheduling is allowed in the Watch app on the iPhone (Workout settings).

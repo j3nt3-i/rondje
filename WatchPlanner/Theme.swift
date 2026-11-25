@@ -243,9 +243,8 @@ struct WorkoutRow: View {
         if isPast { return ("Geweest", nil, .secondary) }
         guard let onWatch else { return nil }
         guard onWatch else { return ("Niet op Watch", nil, .secondary) }
-        // A scheduled workout shows up in Workout on the Watch on its own day.
-        if let day = ScheduleDates.day(workout.date), !ScheduleDates.calendar.isDateInToday(day) {
-            return ("Toegevoegd", "beschikbaar \(Format.shortDay(day).lowercased())", Theme.accent)
+        if let from = ScheduleDates.watchVisibleFrom(workout.date) {
+            return ("Toegevoegd", "op Watch vanaf \(Format.shortDay(from).lowercased())", Theme.accent)
         }
         return ("Op Watch", nil, Theme.accent)
     }
