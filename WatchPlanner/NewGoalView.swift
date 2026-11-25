@@ -71,6 +71,8 @@ struct NewGoalView: View {
     @State private var trailMissing: TrailPart?
     // An answer Rondje could not use; sending it again means you mean it.
     @State private var doubted: String?
+    // "Een tijd neerzetten" was chosen without a time, and Rondje asked which.
+    @State private var askedTime = false
     // Your answers exactly as you typed them. Your bubbles show these, never a rewritten version.
     @State private var typedAnswers: [Step: String] = [:]
 
@@ -165,6 +167,7 @@ struct NewGoalView: View {
                 heldMonth = nil
                 trailMissing = nil
                 doubted = nil
+                askedTime = false
                 // A short "typing" moment before each question.
                 // A moment of "thinking", then the question appears letter by letter.
                 streamed = ""
@@ -269,7 +272,7 @@ struct NewGoalView: View {
             }
         case .trail:
             if let up = Int(trailUp), up >= 500 { return "\(up) hoogtemeters, dat wordt klimmen!" }
-            return trailKm.isEmpty && trailUp.isEmpty ? "Geen probleem." : "\(answer(.trail)), helder."
+            return trailKm.isEmpty && trailUp.isEmpty ? "Geen probleem, dat zoeken we later uit." : "\(answer(.trail)), helder."
         case .date:
             guard hasDate else { return "Prima, dan houden we het flexibel." }
             let cal = Calendar.current
@@ -280,9 +283,9 @@ struct NewGoalView: View {
             if n < 120 { return "\(day), nog \(n) dagen. Mooi op tijd." }
             return "\(day), nog \(n) dagen. Lekker veel tijd om op te bouwen."
         case .method:
-            switch method { case .ai: return "Leuk! Ik stel je een paar vragen en maak daar een prompt van. Die kopieer je naar je eigen AI, zoals Claude of ChatGPT. Het antwoord plak je hier terug, en dan zet ik je trainingen klaar."; case .paste: return "Top."; case .later: return "Prima, dan doen we dat later." }
+            switch method { case .ai: return "Leuk! Ik stel je een paar vragen en maak daar een prompt van. Die kopieer je naar je eigen AI, zoals Claude of ChatGPT. Het antwoord plak je hier terug, en dan zet ik je trainingen klaar."; case .paste: return "Top, dan plak je hem zo hier."; case .later: return "Prima, dan doen we dat later." }
         case .perWeek: return "\(perWeek)x per week, mooi."
-        case .level: return "Duidelijk."
+        case .level: return "Dank je, dan weet ik waar je staat."
         case .aim:
             let time = aimTime.trimmingCharacters(in: .whitespaces)
             return aims.contains("Een tijd neerzetten") && !time.isEmpty ? "Een tijd van \(time), mooi doel!" : "Mooi."
@@ -668,7 +671,9 @@ struct NewGoalView: View {
     private func act(on taken: Taken, said t: String) {
         switch taken {
         case .ok:
-            typedAnswers[step] = t.isEmpty ? nil : t
+            // With pills chosen, the bubble shows those too, unless this was the answer to a follow-up.
+            let pills = (step == .aim && !aims.isEmpty && !askedTime) || (step == .wishes && !wishes.isEmpty)
+            typedAnswers[step] = t.isEmpty || pills ? nil : t
             goNext()
         case .ask(let more): reply(t, more)
         case .no: reply(t, explain(step))
@@ -723,7 +728,7 @@ struct NewGoalView: View {
         // Nonsense, like "Pizza" as a goal. Sending the same again means you mean it.
         if ok, !turn.fits, turn.kind != .correction, doubted != t {
             doubted = t
-            reply(t, "Hier kan ik niks mee. \(explain(step))")
+            reply(t, "Sorry, daar kom ik niet uit. \(explain(step))")
             return
         }
         if ok {
@@ -740,7 +745,7 @@ struct NewGoalView: View {
                 return
             }
         }
-        reply(t, turn.kind == .other || !turn.fits ? "Hier kan ik niks mee. \(explain(step))" : explain(step))
+        reply(t, turn.kind == .other || !turn.fits ? "Sorry, daar kom ik niet uit. \(explain(step))" : explain(step))
     }
 
     private enum Taken { case ok, no, ask(String) }
@@ -801,7 +806,7 @@ struct NewGoalView: View {
                 return .ask("Welke \(d)e bedoel je? \(Format.day(dayString(next[0]))) of \(Format.day(dayString(next[1])).lowercased())?")
             case let (nil, m?):
                 heldMonth = m
-                return .ask("Welke dag in \(NewGoalView.months[m - 1])?")
+                return .ask("Welke dag in \(NewGoalView.months[m - 1]) precies?")
             default:
                 return .no
             }
@@ -811,7 +816,7 @@ struct NewGoalView: View {
             let bare = l.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
             if let word = NewGoalView.yesNo[bare] {
                 options = ["Help me ermee", "Ik heb er al een", "Doe ik later"]
-                return .ask("\(word) op welke vraag? Wil je hulp met een schema, of heb je er al een?")
+                return .ask("Sorry, ik stelde twee vragen tegelijk. Wil je hulp met een schema, of heb je er al een?")
             }
             if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
             else if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
@@ -822,14 +827,19 @@ struct NewGoalView: View {
             if numbers.count > 1 {
                 let both = numbers.sorted()
                 options = both.map { "\($0)x per week" }
-                return .ask("Wordt het \(both.map(String.init).joined(separator: " of ")) keer per week?")
+                return .ask("Wordt het \(both.map(String.init).joined(separator: " of ")) keer per week? Je kunt het later altijd nog aanpassen.")
             }
             guard let n = NewGoalView.count(from: t), (1...7).contains(n) else { return .no }
             perWeek = n
         case .level:
             level = t
+        case .aim where askedTime:
+            // The answer to "welke tijd?" is the time, in your own words.
+            guard !t.isEmpty else { return .no }
+            aimTime = t
         case .aim:
-            if let time = t.range(of: #"\d{1,2}[:.]\d{2}(?:[:.]\d{2})?"#, options: .regularExpression) {
+            if let time = t.range(of: #"\d{1,2}[:.]\d{2}(?:[:.]\d{2})?|\d+\s*(?:uur|u)\b(?:\s*\d+)?|\d+\s*min(?:uten)?"#,
+                                  options: .regularExpression) {
                 aims.insert("Een tijd neerzetten")
                 aimTime = String(t[time])
                 let rest = t.replacingCharacters(in: time, with: "").trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
@@ -838,6 +848,10 @@ struct NewGoalView: View {
             } else {
                 ownAimOn = !t.isEmpty
                 ownAim = t
+            }
+            if aims.contains("Een tijd neerzetten"), aimTime.trimmingCharacters(in: .whitespaces).isEmpty {
+                askedTime = true
+                return .ask("Welke tijd wil je neerzetten? Typ bijvoorbeeld 1:55 of onder de 2 uur.")
             }
         case .wishes:
             ownWish = t
@@ -858,18 +872,18 @@ struct NewGoalView: View {
         if done.contains(.date), let d = NewGoalView.dateInText(t) {
             bigDay = d
             hasDate = true
-            return "Aangepast: de grote dag is nu \(Format.day(dayString(d)).lowercased())."
+            return "Helemaal goed, de grote dag is nu \(Format.day(dayString(d)).lowercased())."
         }
         if done.contains(.perWeek), l.contains("week"), let n = NewGoalView.count(from: t), (1...7).contains(n) {
             perWeek = n
-            return "Aangepast: \(n)x per week."
+            return "Helemaal goed, ik heb het aangepast naar \(n)x per week."
         }
         if done.contains(.trail), isTrail {
             let r = NewGoalView.trail(from: t)
             if r.km != nil || r.up != nil {
                 if let km = r.km { trailKm = km }
                 if let up = r.up { trailUp = up }
-                return "Aangepast: \(answer(.trail))."
+                return "Helemaal goed, ik heb het aangepast naar \(answer(.trail))."
             }
         }
         if done.contains(.name), let m = l.range(of: #"(?:heet|naam is|noem het)\s+(?:eigenlijk\s+)?"#, options: .regularExpression),
@@ -878,7 +892,7 @@ struct NewGoalView: View {
             guard !new.isEmpty else { return nil }
             ownName = goalPresets.first { $0.title.lowercased() == new.lowercased() } == nil
             name = goalPresets.first { $0.title.lowercased() == new.lowercased() }?.title ?? new
-            return "Aangepast: je doel heet nu \(trimmedName)."
+            return "Helemaal goed, je doel heet nu \(trimmedName)."
         }
 
         // "De datum klopt niet" without a new date: ask that question again, then carry on here.
@@ -939,9 +953,9 @@ struct NewGoalView: View {
         }
         guard answer(s) != before else { return nil }
         switch s {
-        case .date: return "Aangepast: de grote dag is nu \(answer(.date).lowercased())."
-        case .name: return "Aangepast: je doel heet nu \(trimmedName)."
-        default: return "Aangepast: \(answer(s))."
+        case .date: return "Helemaal goed, de grote dag is nu \(answer(.date).lowercased())."
+        case .name: return "Helemaal goed, je doel heet nu \(trimmedName)."
+        default: return "Helemaal goed, ik heb het aangepast: \(answer(s))."
         }
     }
 
@@ -957,6 +971,8 @@ struct NewGoalView: View {
 
     /// Adds what you said and Rondje's answer to the chat, and stays on this question.
     private func reply(_ said: String, _ answer: String) {
+        // Sent with only pills chosen: your bubble shows what you picked.
+        let said = said.isEmpty ? self.answer(step) : said
         corrections.append(Correction(at: step, said: said, reply: answer))
         clearComposer()
     }
@@ -967,13 +983,13 @@ struct NewGoalView: View {
         case .name: return "Waar train je voor? Een wedstrijd, een afstand, of gewoon fit blijven. Kies hierboven, of typ bijvoorbeeld Devil's Trail."
         case .trail: return "Hoe lang is je trail, en hoeveel hoogtemeters? Typ bijvoorbeeld 15 km, 400 hoogtemeters, of weet ik niet."
         case .date: return "Op welke dag is je wedstrijd of doel? Typ bijvoorbeeld 13 december, of nog geen datum."
-        case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Typ ja graag, ik heb er al een, of later."
-        case .perWeek: return "Ik bedoel: hoe vaak per week je wilt hardlopen. Typ bijvoorbeeld 3."
+        case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Wil je dat, of heb je al een schema? Later mag ook."
+        case .perWeek: return "Hoe vaak per week wil je hardlopen? Bijvoorbeeld 3 keer."
         case .level: return "Hoe ver kun je nu lopen, en hoe zwaar voelt dat? Bijvoorbeeld: 5 km lukt, maar het is zwaar."
         case .aim: return "Wat wil je halen? Bijvoorbeeld uitlopen of een tijd neerzetten. Kies er een of meer, of typ het zelf."
         case .wishes: return "Heb je wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
         case .paste: return "Plak hier het hele antwoord van je AI-app, met alle trainingen erin."
-        default: return "Kies een van de knoppen hieronder."
+        default: return "Kies gerust een van de knoppen hieronder."
         }
     }
 
