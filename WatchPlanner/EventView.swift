@@ -42,7 +42,8 @@ struct EventView: View {
                             WorkoutRow(
                                 workout: w,
                                 kind: WorkoutKind(w, scheduleName: event.name),
-                                isPast: ScheduleDates.isPast(w.date)
+                                isPast: ScheduleDates.isPast(w.date),
+                                onWatch: planner.onWatchIDs.contains(w.id)
                             )
                         }
                         .swipeActions {
@@ -103,7 +104,6 @@ struct EventView: View {
             if !upcoming.isEmpty {
                 if onWatch.count == upcoming.count {
                     Menu {
-                        Text(watchStatus(upcoming))
                         Button("Opnieuw klaarzetten", systemImage: "arrow.clockwise") {
                             Task { await planner.planWeek(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
                         }
@@ -111,7 +111,7 @@ struct EventView: View {
                             Task { await planner.remove(upcoming, time: event.defaultTime, events: store.events) }
                         }
                     } label: {
-                        Text(watchStatus(upcoming))
+                        Label("Week op Watch", systemImage: "checkmark")
                             .font(.caption.bold())
                             .foregroundStyle(Theme.accent)
                     }
@@ -119,7 +119,7 @@ struct EventView: View {
                     Button {
                         Task { await planner.planWeek(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
                     } label: {
-                        Text(onWatch.isEmpty ? "Zet op Watch" : "Zet rest op Watch")
+                        Text(onWatch.isEmpty ? "Zet week op Watch" : "Zet rest op Watch")
                             .font(.caption.bold())
                             .foregroundStyle(.black)
                             .padding(.horizontal, 10)
@@ -135,15 +135,6 @@ struct EventView: View {
             }
         }
         .textCase(nil)
-    }
-
-    /// The Watch shows 7 days ahead, so a planned week shows up 7 days before its first workout.
-    private func watchStatus(_ workouts: [PlannedWorkout]) -> String {
-        let cal = ScheduleDates.calendar
-        guard let first = workouts.compactMap({ ScheduleDates.day($0.date) }).min(),
-              let visible = cal.date(byAdding: .day, value: -7, to: first),
-              visible > cal.startOfDay(for: .now) else { return "Op je Watch" }
-        return "Op Watch vanaf \(Format.shortDay(visible).lowercased())"
     }
 
     // MARK: - Actions

@@ -203,6 +203,8 @@ struct WorkoutRow: View {
     let workout: PlannedWorkout
     let kind: WorkoutKind
     let isPast: Bool
+    /// Nil hides the Watch status (for example in the import preview).
+    var onWatch: Bool? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -219,13 +221,30 @@ struct WorkoutRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            if isPast {
-                Image(systemName: "checkmark.circle")
-                    .foregroundStyle(.tertiary)
-                    .accessibilityLabel("Geweest")
+            if let status {
+                Text(status.text)
+                    .font(.caption.bold())
+                    .foregroundStyle(status.color)
+                    .multilineTextAlignment(.trailing)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 90, alignment: .trailing)
             }
         }
         .opacity(isPast ? 0.45 : 1)
         .padding(.vertical, 2)
+    }
+
+    private var status: (text: String, color: Color)? {
+        if isPast { return ("Geweest", .secondary) }
+        guard let onWatch else { return nil }
+        guard onWatch else { return ("Niet op Watch", .secondary) }
+        // The Watch shows a week ahead, so later workouts appear 7 days before.
+        let cal = ScheduleDates.calendar
+        if let day = ScheduleDates.day(workout.date),
+           let visible = cal.date(byAdding: .day, value: -7, to: day),
+           visible > cal.startOfDay(for: .now) {
+            return ("Op Watch vanaf \(Format.shortDay(visible).lowercased())", Theme.accent.opacity(0.75))
+        }
+        return ("Op Watch", Theme.accent)
     }
 }

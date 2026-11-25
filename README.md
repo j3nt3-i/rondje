@@ -66,7 +66,7 @@ warmup 10 min z2
 cooldown
 ```
 
-In an event, each week has its own button: "Zet op Watch" puts just that week on the Watch next to what is there. A planned week says "Op je Watch", or "Op Watch vanaf <day>" when it is more than 7 days away (the Watch only shows a week ahead). Tap it to plan the week again or take it off the Watch.
+In an event, each workout shows its Watch status: "Op Watch", "Op Watch vanaf <day>" when it is more than 7 days away (the Watch only shows a week ahead), "Niet op Watch" or "Geweest". Each week has a button "Zet week op Watch" that adds just that week next to what is there; once planned, "Week op Watch" lets you plan it again or take it off.
 
 "Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. "Op je Watch" on the home screen lists what WorkoutKit reports as scheduled (only this app's workouts). Swipe one to take it off the Watch, or use "Haal alles van je Watch". The workouts stay in their events, so "Plan op Watch" puts them back.
 
