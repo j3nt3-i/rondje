@@ -74,7 +74,6 @@ struct EventView: View {
                 Button("Training toevoegen", systemImage: "plus") { showAdd = true }
             }
         }
-        .safeAreaInset(edge: .bottom) { PlanButton() }
         .sheet(isPresented: $showAdd) {
             AddWorkoutView(
                 existingIDs: Set(event.workouts.map(\.id)),
@@ -105,7 +104,7 @@ struct EventView: View {
                 if onWatch.count == upcoming.count {
                     Menu {
                         Button("Opnieuw klaarzetten", systemImage: "arrow.clockwise") {
-                            Task { await planner.planWeek(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
+                            Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
                         }
                         Button("Haal week van Watch", systemImage: "applewatch.slash", role: .destructive) {
                             Task { await planner.remove(upcoming, time: event.defaultTime, events: store.events) }
@@ -117,7 +116,7 @@ struct EventView: View {
                     }
                 } else {
                     Button {
-                        Task { await planner.planWeek(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
+                        Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
                     } label: {
                         Text(onWatch.isEmpty ? "Zet week op Watch" : "Zet rest op Watch")
                             .font(.caption.bold())
@@ -142,7 +141,9 @@ struct EventView: View {
     private func add(_ workout: PlannedWorkout, to event: TrainingSchedule, planNow: Bool) {
         do {
             try store.add(workout, to: event.name)
-            if planNow { Task { await planner.plan(store.events) } }
+            if planNow {
+                Task { await planner.put([workout], time: event.defaultTime, title: "Op je Watch gezet", events: store.events) }
+            }
         } catch {
             message = Message(title: "Lukt niet", text: error.localizedDescription)
         }

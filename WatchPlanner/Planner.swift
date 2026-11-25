@@ -17,19 +17,6 @@ final class Planner {
         watchItems = await service.watchItems(events: events)
     }
 
-    func plan(_ events: [TrainingSchedule]) async {
-        guard !isBusy else { return }
-        isBusy = true
-        defer { isBusy = false }
-        do {
-            let result = try await service.planOnWatch(events)
-            await refresh(events)
-            message = Message(result)
-        } catch {
-            message = Message(title: "Plannen lukt niet", text: error.localizedDescription)
-        }
-    }
-
     func remove(_ workouts: [PlannedWorkout], time: String, events: [TrainingSchedule]) async {
         for w in workouts where onWatchIDs.contains(w.id) {
             await service.remove(w, time: time)
@@ -39,8 +26,8 @@ final class Planner {
 }
 
 extension Planner {
-    /// Puts one week on the Watch, next to what is already there.
-    func planWeek(_ workouts: [PlannedWorkout], time: String, title: String, events: [TrainingSchedule]) async {
+    /// Puts these workouts on the Watch, next to what is already there.
+    func put(_ workouts: [PlannedWorkout], time: String, title: String, events: [TrainingSchedule]) async {
         guard !isBusy else { return }
         isBusy = true
         defer { isBusy = false }
@@ -81,34 +68,5 @@ extension Message {
             lines.append("Niet gelukt: \(r.missing.joined(separator: ", ")).")
         }
         self.init(title: r.missing.isEmpty ? "Klaargezet" : "Deels gelukt", text: lines.joined(separator: "\n\n"))
-    }
-}
-
-struct PlanButton: View {
-    @Environment(ScheduleStore.self) private var store
-    @Environment(Planner.self) private var planner
-
-    var body: some View {
-        Button {
-            Task { await planner.plan(store.events) }
-        } label: {
-            HStack(spacing: 8) {
-                if planner.isBusy {
-                    ProgressView().tint(.black)
-                } else {
-                    Image(systemName: "applewatch")
-                }
-                Text(planner.isBusy ? "Bezig..." : "Plan op Watch")
-            }
-            .font(.headline)
-            .foregroundStyle(.black)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(Theme.accent, in: Capsule())
-        }
-        .disabled(planner.isBusy || store.events.allSatisfy(\.workouts.isEmpty))
-        .padding(.horizontal)
-        .padding(.bottom, 8)
-        .background(.black.opacity(0.85))
     }
 }

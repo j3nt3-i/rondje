@@ -159,45 +159,4 @@ final class ScheduleService {
             missing: missing
         )
     }
-
-    /// Replaces everything on the Watch with the upcoming workouts of all events.
-    func planOnWatch(_ events: [TrainingSchedule]) async throws -> ScheduleResult {
-        guard WorkoutScheduler.isSupported else { throw ScheduleServiceError.notSupported }
-        guard await Self.authorize() else { throw ScheduleServiceError.notAuthorized }
-
-        let all = events.flatMap { e in e.workouts.map { (workout: $0, time: e.defaultTime) } }
-        let upcoming = all
-            .filter { !ScheduleDates.isPast($0.workout.date) }
-            .sorted { $0.workout.date < $1.workout.date }
-        guard !upcoming.isEmpty else { throw ScheduleServiceError.nothingToSchedule }
-
-        let limit = WorkoutScheduler.maxAllowedScheduledWorkoutCount
-        let toSchedule = Array(upcoming.prefix(limit))
-
-        // Build everything first, so a bad date does not leave the Watch half empty.
-        var plans: [(PlannedWorkout, WorkoutPlan, DateComponents)] = []
-        for (w, time) in toSchedule {
-            guard let when = ScheduleDates.components(day: w.date, time: time) else {
-                throw ScheduleServiceError.invalidDate(w.name)
-            }
-            plans.append((w, WorkoutBuilder.plan(for: w), when))
-        }
-
-        await scheduler.removeAllWorkouts()
-        for (_, plan, when) in plans {
-            await scheduler.schedule(plan, at: when)
-        }
-
-        // schedule(_:at:) does not throw, so check what actually landed.
-        let landed = Set(await scheduler.scheduledWorkouts.map(\.plan.id))
-        let missing = plans.filter { !landed.contains($0.1.id) }.map(\.0.name)
-
-        return ScheduleResult(
-            scheduled: plans.count - missing.count,
-            skippedPast: all.count - upcoming.count,
-            overLimit: upcoming.count - toSchedule.count,
-            limit: limit,
-            missing: missing
-        )
-    }
 }

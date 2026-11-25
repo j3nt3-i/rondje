@@ -68,7 +68,6 @@ cooldown
 
 In an event, each workout shows its Watch status: "Op Watch", "Op Watch vanaf <day>" when it is more than 7 days away (the Watch only shows a week ahead), "Niet op Watch" or "Geweest". Each week has a button "Zet week op Watch" that adds just that week next to what is there; once planned, "Week op Watch" lets you plan it again or take it off.
 
-"Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. To clear the Watch: `+` > "Haal alles van je Watch". The workouts stay in their events, so "Plan op Watch" puts them back.
 
 ## Check that it worked
 

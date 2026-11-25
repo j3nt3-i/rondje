@@ -244,7 +244,9 @@ struct ImportView: View {
         guard let event else { return }
         do {
             try store.upsert(event)
-            if planNow { Task { await planner.plan(store.events) } }
+            if planNow {
+                Task { await planner.put(event.workouts, time: event.defaultTime, title: "\(event.name) op je Watch gezet", events: store.events) }
+            }
             dismiss()
         } catch {
             saveError = error.localizedDescription

@@ -73,14 +73,13 @@ struct EventsView: View {
                     .accessibilityLabel("Toevoegen")
                 }
             }
-            .safeAreaInset(edge: .bottom) { PlanButton() }
             .sheet(isPresented: $showImport) { ImportView() }
             .confirmationDialog("Alles van je Watch halen?", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("Haal alles weg", role: .destructive) {
                     Task { await planner.clearWatch(events: store.events) }
                 }
             } message: {
-                Text("Je events blijven staan. Met Plan op Watch zet je ze er weer op.")
+                Text("Je events blijven staan. Met de weekknoppen in een event zet je ze er weer op.")
             }
             .alert("Nieuw event", isPresented: $showNewEvent) {
                 TextField("Naam, bijvoorbeeld Zevenheuvelenloop", text: $newEventName)
