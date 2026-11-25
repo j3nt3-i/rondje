@@ -458,10 +458,6 @@ struct NewGoalView: View {
             ForEach(goalPresets, id: \.title) { g in
                 GoalPill(icon: g.icon, title: g.title, isOn: false) { answerName(g.title, preset: true) }
             }
-        case .method:
-            GoalPill(icon: "sparkles", title: "Help me ermee", isOn: false) { method = .ai; goNext() }
-            GoalPill(icon: "doc.on.clipboard", title: "Ik plak of typ het zelf", isOn: false) { method = .paste; goNext() }
-            GoalPill(icon: "clock", title: "Doe ik later", isOn: false) { method = .later; goNext() }
         case .level:
             ForEach(levels, id: \.title) { l in
                 GoalPill(title: l.title, isOn: false) { level = levelValue(l); goNext() }
@@ -504,7 +500,7 @@ struct NewGoalView: View {
         case .name: return "Of typ je eigen doel, bijv. Devil's Trail"
         case .trail: return "Bijv. 15 km, 400 hoogtemeters, of weet ik niet"
         case .date: return "Bijv. 13 december, of nog geen datum"
-        case .method: return "Kies hierboven, of typ bijv. ja graag"
+        case .method: return "Bijv. ja graag, ik heb er al een, of later"
         case .perWeek: return "Bijv. 4"
         case .level: return "Of vertel het zelf, bijv. 2x per week 6 km"
         case .aim: return aims.contains("Een tijd neerzetten") ? "Welke tijd? Bijv. 1:55" : "Kies hierboven, of typ het zelf"
@@ -569,10 +565,10 @@ struct NewGoalView: View {
             hasDate = true
         case .method:
             let l = t.lowercased()
-            if l.contains("later") { method = .later }
-            else if l.contains("plak") || l.contains("zelf") || l.contains("typ") || l.contains("heb al") || l.contains("heb ik al") { method = .paste }
-            else if l.contains("help") || l.contains("ja") || l.contains("graag") || l.contains("ai") || l.contains("claude") || l.contains("chatgpt") { method = .ai }
-            else { composerError = "Kies Help me ermee, Ik plak of typ het zelf, of Doe ik later."; return }
+            if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
+            else if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
+            else if ["ja", "graag", "help", "maak", "ai", "claude", "chatgpt", "prima", "oké", "ok"].contains(where: l.contains) { method = .ai }
+            else { composerError = "Typ bijv. ja graag, ik heb er al een, of later."; return }
         case .perWeek:
             var parsed = NewGoalView.count(from: t)
             if parsed == nil { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
