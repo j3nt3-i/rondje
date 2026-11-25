@@ -73,6 +73,6 @@ In a workout, "Voeg toe aan je workouts" opens Apple's preview; adding there put
 
 ## Check that it worked
 
-- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with today's workout; each scheduled workout appears there on its own day. The Watch app on the iPhone shows what is scheduled for the coming 7 days.
+- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with today's workout; each scheduled workout appears there on its own day. To see later ones on the Watch: tap the three dots on Rondje, then View More; they are under Upcoming. The Watch app on the iPhone shows what is scheduled for the coming 7 days.
 - In the app: each workout in an event shows "Toegevoegd" or "Op Watch" once the iPhone handed it to WorkoutKit. The app cannot see the Watch itself.
 - If nothing shows up: keep the Watch unlocked and near the iPhone, check the Watch runs watchOS 10 or later, and check that scheduling is allowed in the Watch app on the iPhone (Workout settings).

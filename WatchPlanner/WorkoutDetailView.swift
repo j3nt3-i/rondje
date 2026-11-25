@@ -40,6 +40,11 @@ struct WorkoutDetailView: View {
                               systemImage: "applewatch")
                             .font(.subheadline)
                             .foregroundStyle(Theme.accent)
+                        if ScheduleDates.watchVisibleFrom(workout.date) != nil {
+                            Text("Zie je hem nog niet in Rondje op je Watch? Dat klopt, hij staat daar op de dag zelf. Eerder kijken: open Workout, tik bij Rondje op de drie puntjes en dan op View More. Onder Upcoming staat hij.")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
                     } else if ScheduleDates.isPast(workout.date) {
                         Label("Geweest", systemImage: "clock.arrow.circlepath")
                             .font(.subheadline)
