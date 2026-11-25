@@ -14,7 +14,6 @@ struct EventsView: View {
     @State private var confirmClear = false
 
     var body: some View {
-        @Bindable var planner = planner
         NavigationStack {
             List {
                 if let loadError = store.loadError {
@@ -112,7 +111,6 @@ struct EventsView: View {
                     }
                 }
             }
-            .alert(item: $planner.message) { m in Alert(title: Text(m.title), message: Text(m.text)) }
             .alert(item: $error) { m in Alert(title: Text(m.title), message: Text(m.text)) }
         }
     }
