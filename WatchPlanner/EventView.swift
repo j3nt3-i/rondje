@@ -25,7 +25,7 @@ struct EventView: View {
             if let event = store.event(named: eventName) {
                 content(event)
             } else {
-                ContentUnavailableView("Event bestaat niet meer", systemImage: "flag.slash")
+                ContentUnavailableView("Doel bestaat niet meer", systemImage: "flag.slash")
             }
         }
         .navigationTitle(eventName)
@@ -49,8 +49,35 @@ struct EventView: View {
                 }
             }
             if event.workouts.isEmpty {
-                Text("Nog geen trainingen. Tik op + om er een toe te voegen.")
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 14) {
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.system(size: 44))
+                        .foregroundStyle(Theme.accent)
+                    Text("Nog geen trainingen")
+                        .font(.title3.bold())
+                    Text("Plak een schema, bijvoorbeeld van Claude, of voeg zelf een training toe.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    Button {
+                        showEditSchedule = true
+                    } label: {
+                        Label("Plak een schema", systemImage: "doc.on.clipboard")
+                            .font(.headline)
+                            .foregroundStyle(.black)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Theme.accent, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Button("Training toevoegen", systemImage: "plus") { showAdd = true }
+                        .font(.subheadline.bold())
+                        .buttonStyle(.plain)
+                        .foregroundStyle(Theme.accent)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 28)
+                .listRowBackground(Color.clear)
             }
             ForEach(weeks(event.workouts), id: \.start) { week in
                 Section {
@@ -102,7 +129,7 @@ struct EventView: View {
                         message = Message(title: "Gekopieerd",
                                           text: "Het hele schema staat op je klembord. Handig om aan Claude te geven om het aan te passen.")
                     }
-                    Button("Verwijder event", systemImage: "trash", role: .destructive) {
+                    Button("Verwijder doel", systemImage: "trash", role: .destructive) {
                         confirmDelete = true
                     }
                 } label: {
@@ -126,9 +153,9 @@ struct EventView: View {
             }
         }
         .confirmationDialog("\(event.name) verwijderen?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Verwijder event", role: .destructive) { deleteEvent(event) }
+            Button("Verwijder doel", role: .destructive) { deleteEvent(event) }
         } message: {
-            Text("Alle trainingen van dit event gaan weg, ook van je Watch.")
+            Text("Alle trainingen van dit doel gaan weg, ook van je Watch.")
         }
     }
 

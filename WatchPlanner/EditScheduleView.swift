@@ -16,6 +16,10 @@ struct EditScheduleView: View {
     @State private var aiWorkouts: [String: PlannedWorkout] = [:]
     @State private var thinking = false
     @State private var saveError: String?
+    // The text is read once after typing pauses, off the main thread.
+    @State private var reading: Result<(schedule: TrainingSchedule, doubts: [WorkoutText.Doubt]), Error>?
+    @State private var isReading = false
+    @State private var saving = false
 
     var body: some View {
         NavigationStack {
@@ -38,19 +42,19 @@ struct EditScheduleView: View {
                          + (WorkoutAI.unavailableReason.map { " " + $0 } ?? ""))
                 }
 
-                if thinking {
+                if isReading || thinking {
                     Section {
                         HStack(spacing: 10) {
                             ProgressView()
-                            Text("Apple Intelligence leest mee...").foregroundStyle(.secondary)
+                            Text(isReading ? "Schema lezen..." : "Apple Intelligence leest mee...").foregroundStyle(.secondary)
                         }
                     }
                 }
 
-                switch result {
+                switch isReading ? nil : result {
                 case .success(let new):
                     changesSection(new)
-                case .failure(let error) where !thinking:
+                case .failure(let error) where !thinking && !text.isEmpty:
                     Section {
                         Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -80,7 +84,7 @@ struct EditScheduleView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Bewaar", action: save)
                         .bold()
-                        .disabled(newWorkouts == nil || thinking || changes.isEmpty)
+                        .disabled(newWorkouts == nil || isReading || thinking || saving || changes.isEmpty)
                 }
             }
             .onAppear {
@@ -88,7 +92,22 @@ struct EditScheduleView: View {
                 filled = true
                 text = WorkoutText.programText(for: event)
             }
-            .task(id: text) { await askAI() }
+            .task(id: text) { await read() }
+            .disabled(saving)
+            .overlay {
+                if saving {
+                    VStack(spacing: 14) {
+                        ProgressView().controlSize(.large)
+                        Text("Schema bijwerken...").font(.headline)
+                        if wasOnWatch && updateWatch {
+                            Text("Je Watch wordt ook bijgewerkt.").font(.subheadline).foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(28)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24))
+                }
+            }
+            .interactiveDismissDisabled(saving)
         }
     }
 
@@ -154,12 +173,13 @@ struct EditScheduleView: View {
     // MARK: - Reading
 
     private var parsed: (schedule: TrainingSchedule, doubts: [WorkoutText.Doubt])? {
-        try? WorkoutText.programWithWarnings(text)
+        if case .success(let p) = reading { return p }
+        return nil
     }
 
     private var result: Result<TrainingSchedule, Error>? {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return Result { try WorkoutAI.merge(try WorkoutText.programWithWarnings(text), aiWorkouts) }
+        guard let reading else { return nil }
+        return reading.flatMap { p in Result { try WorkoutAI.merge(p, aiWorkouts) } }
     }
 
     private var newWorkouts: [PlannedWorkout]? {
@@ -175,14 +195,24 @@ struct EditScheduleView: View {
         event.workouts.contains { planner.onWatchIDs.contains($0.id) }
     }
 
-    private func askAI() async {
+    /// Reads the text after typing pauses, then lets Apple Intelligence try what the rules doubted.
+    private func read() async {
         aiWorkouts = [:]
         thinking = false
-        guard WorkoutAI.isAvailable, let doubts = parsed?.doubts, !doubts.isEmpty else { return }
-        try? await Task.sleep(for: .milliseconds(700))
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { reading = nil; isReading = false; return }
+        isReading = true
+        try? await Task.sleep(for: .milliseconds(300))
         guard !Task.isCancelled else { return }
+        let current = text
+        let r = await Task.detached(priority: .userInitiated) {
+            Result { try WorkoutText.programWithWarnings(current) }
+        }.value
+        guard !Task.isCancelled else { return }
+        reading = r
+        isReading = false
+        guard WorkoutAI.isAvailable, case .success(let p) = r, !p.doubts.isEmpty else { return }
         thinking = true
-        let found = await WorkoutAI.readDoubts(doubts)
+        let found = await WorkoutAI.readDoubts(p.doubts)
         guard !Task.isCancelled else { return }
         aiWorkouts = found
         thinking = false
@@ -195,24 +225,28 @@ struct EditScheduleView: View {
         let c = changes
         var updated = event
         updated.workouts = new
+        saving = true
         do {
             try store.update(event.name, to: updated)
         } catch {
             saveError = error.localizedDescription
+            saving = false
             return
         }
         for w in c.removed { planner.setCustom(w.id, false) }
-        if wasOnWatch && updateWatch {
-            let oldByID = Dictionary(event.workouts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            let outdated = c.removed + c.changed.compactMap { oldByID[$0.id] }
-            let toPut = (c.added + c.changed).filter { !ScheduleDates.isPast($0.date) }
-            Task {
+        let oldByID = Dictionary(event.workouts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let outdated = c.removed + c.changed.compactMap { oldByID[$0.id] }
+        let toPut = (c.added + c.changed).filter { !ScheduleDates.isPast($0.date) }
+        let touchWatch = wasOnWatch && updateWatch
+        Task {
+            if touchWatch {
                 await planner.remove(outdated, time: event.defaultTime, events: store.events)
                 if !toPut.isEmpty {
                     await planner.put(toPut, time: event.defaultTime, title: "Schema bijgewerkt", events: store.events)
                 }
             }
+            saving = false
+            dismiss()
         }
-        dismiss()
     }
 }

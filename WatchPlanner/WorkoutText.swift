@@ -488,7 +488,7 @@ enum WorkoutText {
 
         Geef het schema zonder uitleg, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
 
-        \(name.isEmpty ? "Naam van het event" : name)
+        \(name.isEmpty ? "Naam van je doel" : name)
 
         2026-12-01 Di intervallen
         warmup 10 min z2

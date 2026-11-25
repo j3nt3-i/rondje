@@ -238,7 +238,7 @@ final class ScheduleStore {
             }
             loadError = nil
         } catch {
-            loadError = "Opgeslagen events konden niet geladen worden. \(error.localizedDescription)"
+            loadError = "Opgeslagen doelen konden niet geladen worden. \(error.localizedDescription)"
         }
     }
 
@@ -260,9 +260,9 @@ final class ScheduleStore {
     /// Saves changes to an event, also when its name changed.
     func update(_ oldName: String, to event: TrainingSchedule) throws {
         let name = event.name.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else { throw ScheduleError(message: "Geef het event een naam.") }
+        guard !name.isEmpty else { throw ScheduleError(message: "Geef je doel een naam.") }
         guard name == oldName || self.event(named: name) == nil else {
-            throw ScheduleError(message: "Er is al een event met die naam.")
+            throw ScheduleError(message: "Er is al een doel met die naam.")
         }
         var all = events
         guard let i = all.firstIndex(where: { $0.name == oldName }) else { return }

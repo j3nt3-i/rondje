@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-// Home: next workout and all events.
+// Home: next workout and all goals (stored as events), or a welcome screen when there are none.
 
 struct EventsView: View {
     @Environment(ScheduleStore.self) private var store
@@ -11,6 +11,31 @@ struct EventsView: View {
 
     var body: some View {
         NavigationStack {
+            Group {
+                if store.events.isEmpty && store.loadError == nil {
+                    EmptyHome { showNewEvent = true }
+                } else {
+                    list
+                }
+            }
+            .navigationTitle("Rondje")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showNewEvent = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.title2)
+                            .symbolRenderingMode(.hierarchical)
+                    }
+                    .accessibilityLabel("Nieuw doel")
+                }
+            }
+            .sheet(isPresented: $showNewEvent) { NewEventView() }
+        }
+    }
+
+    private var list: some View {
             List {
                 if let loadError = store.loadError {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
@@ -27,11 +52,7 @@ struct EventsView: View {
                     }
                 }
 
-                Section("Events") {
-                    if store.events.isEmpty {
-                        Text("Nog geen events. Tik op + om er een te maken.")
-                            .foregroundStyle(.secondary)
-                    }
+                Section("Doelen") {
                     ForEach(store.events, id: \.name) { event in
                         NavigationLink {
                             EventView(eventName: event.name)
@@ -42,21 +63,6 @@ struct EventsView: View {
                 }
 
             }
-            .navigationTitle("Rondje")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showNewEvent = true
-                    } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.title2)
-                            .symbolRenderingMode(.hierarchical)
-                    }
-                    .accessibilityLabel("Nieuw event")
-                }
-            }
-            .sheet(isPresented: $showNewEvent) { NewEventView() }
-        }
     }
 
     // MARK: - Rows
@@ -123,5 +129,68 @@ struct EventsView: View {
         if cal.isDateInToday(date) { return "Vandaag" }
         if cal.isDateInTomorrow(date) { return "Morgen" }
         return Format.shortDay(date)
+    }
+}
+
+// MARK: - Welcome
+
+/// Shown when there are no goals yet: what the app does in three steps, and one button.
+struct EmptyHome: View {
+    let onNew: () -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 28) {
+                ZStack {
+                    Circle().fill(Theme.accent.opacity(0.15)).frame(width: 140, height: 140)
+                    Image(systemName: "figure.run")
+                        .font(.system(size: 64, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                .padding(.top, 24)
+                .accessibilityHidden(true)
+
+                VStack(spacing: 10) {
+                    Text("Waar train je voor?")
+                        .font(.system(.largeTitle, design: .rounded).bold())
+                    Text("Maak een doel, zoals een wedstrijd. Rondje zet je trainingen op de juiste dag op je Watch.")
+                        .foregroundStyle(.secondary)
+                }
+                .multilineTextAlignment(.center)
+
+                VStack(alignment: .leading, spacing: 20) {
+                    step("flag.checkered", "Kies je doel", "Bijvoorbeeld de Zevenheuvelenloop, met de datum erbij.")
+                    step("sparkles", "Zet er een schema in", "Plak het van Claude, of typ het zelf.")
+                    step("applewatch", "Elke ochtend op je pols", "De training van vandaag staat klaar in Workout.")
+                }
+                .padding(22)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 24))
+
+                Button(action: onNew) {
+                    Label("Nieuw doel", systemImage: "plus")
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(Theme.accent, in: Capsule())
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 32)
+        }
+    }
+
+    private func step(_ icon: String, _ title: String, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            Image(systemName: icon)
+                .font(.title3)
+                .foregroundStyle(Theme.accent)
+                .frame(width: 32)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.headline)
+                Text(text).font(.subheadline).foregroundStyle(.secondary)
+            }
+        }
     }
 }

@@ -31,7 +31,7 @@ struct ClaudePromptView: View {
                 }
 
                 Section {
-                    LabeledContent("Event", value: event.isEmpty ? "Nog geen naam" : event)
+                    LabeledContent("Doel", value: event.isEmpty ? "Nog geen naam" : event)
                     LabeledContent("Wedstrijd", value: raceDate.map { Format.shortDay($0) } ?? "Geen datum")
                 } footer: {
                     Text("Uit het vorige scherm. Pas het daar aan als het niet klopt.")
@@ -113,7 +113,7 @@ struct ClaudePromptView: View {
                 .buttonBorderShape(.capsule)
                 .tint(Theme.accent)
             }
-            Text("Plak zet het antwoord van Claude in je nieuwe event.")
+            Text("Plak zet het antwoord van Claude in je nieuwe doel.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }

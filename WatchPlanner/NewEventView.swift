@@ -36,10 +36,10 @@ struct NewEventView: View {
                                    displayedComponents: .date)
                     }
                 } header: {
-                    Text("Event")
+                    Text("Doel")
                 } footer: {
                     if !finalName.isEmpty, store.event(named: finalName) != nil {
-                        Text("Er is al een event met deze naam. Kies een andere naam.").foregroundStyle(.orange)
+                        Text("Er is al een doel met deze naam. Kies een andere naam.").foregroundStyle(.orange)
                     }
                 }
 
@@ -51,14 +51,14 @@ struct NewEventView: View {
                     }
                 }
             }
-            .navigationTitle("Nieuw event")
+            .navigationTitle("Nieuw doel")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuleer") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Maak event", action: create)
+                    Button("Maak doel", action: create)
                         .bold()
                         .disabled(event == nil || thinking)
                 }
@@ -190,7 +190,7 @@ struct NewEventView: View {
                     Label("\(skipped.count) overgeslagen", systemImage: "exclamationmark.triangle.fill")
                         .font(.callout.bold())
                     ForEach(skipped, id: \.self) { Text($0).font(.footnote) }
-                    Text("Voeg die later zelf toe in het event, of pas de tekst hierboven aan.")
+                    Text("Voeg die later zelf toe bij je doel, of pas de tekst hierboven aan.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -304,7 +304,7 @@ struct EditEventView: View {
                     }
                 }
             }
-            .navigationTitle("Event wijzigen")
+            .navigationTitle("Doel wijzigen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
