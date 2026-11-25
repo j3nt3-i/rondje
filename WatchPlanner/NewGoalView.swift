@@ -163,14 +163,17 @@ struct NewGoalView: View {
 
         case .method:
             header("Hoe maak je je schema?", "Je kunt het later altijd nog aanpassen.")
-            FlowLayout(spacing: 10) {
-                GoalPill(icon: "sparkles", title: "Met AI", isOn: method == .ai) { method = .ai }
-                GoalPill(icon: "doc.on.clipboard", title: "Zelf plakken of typen", isOn: method == .paste) { method = .paste }
-                GoalPill(icon: "clock", title: "Later", isOn: method == .later) { method = .later }
+            VStack(spacing: 12) {
+                RadioRow(icon: "sparkles", title: "Met AI",
+                         text: "Je beantwoordt een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema.",
+                         isOn: method == .ai) { method = .ai }
+                RadioRow(icon: "doc.on.clipboard", title: "Zelf plakken of typen",
+                         text: "Je hebt al een schema, van een trainer, website of AI.",
+                         isOn: method == .paste) { method = .paste }
+                RadioRow(icon: "clock", title: "Later",
+                         text: "Je maakt eerst het doel. Trainingen voeg je later toe.",
+                         isOn: method == .later) { method = .later }
             }
-            helper(method == .ai ? "Je beantwoordt een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema."
-                   : method == .paste ? "Je hebt al een schema, van een trainer, website of AI."
-                   : "Je maakt eerst het doel. Trainingen voeg je later toe.")
 
         case .perWeek:
             header("Hoe vaak wil je lopen?", "Per week.")
@@ -603,6 +606,47 @@ struct BounceStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
+    }
+}
+
+// MARK: - Radio row
+
+/// One choice of a few, with a short explanation: a radio circle, title and text.
+struct RadioRow: View {
+    let icon: String
+    let title: String
+    let text: String
+    let isOn: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(alignment: .top, spacing: 14) {
+                ZStack {
+                    Circle().strokeBorder(isOn ? Theme.accent : Color(white: 0.45), lineWidth: 2)
+                    if isOn { Circle().fill(Theme.accent).padding(5) }
+                }
+                .frame(width: 24, height: 24)
+                .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 4) {
+                    Label(title, systemImage: icon)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(text)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(isOn ? Theme.accent : .white.opacity(0.08), lineWidth: isOn ? 2 : 1))
+        }
+        .buttonStyle(BounceStyle())
+        .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
 
