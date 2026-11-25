@@ -100,9 +100,8 @@ struct NewGoalView: View {
                 if dockReady {
                     dock
                         .padding(.horizontal, 16)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 10)
                         .frame(maxWidth: .infinity)
-                        .background(.bar)
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }
