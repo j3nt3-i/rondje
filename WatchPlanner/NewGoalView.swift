@@ -22,6 +22,8 @@ struct NewGoalView: View {
 
     // Goal
     @State private var name = ""
+    @State private var ownName = false
+    @FocusState private var nameFocused: Bool
     @State private var hasDate = true
     @State private var bigDay = Calendar.current.date(byAdding: .month, value: 2, to: .now) ?? .now
 
@@ -120,14 +122,31 @@ struct NewGoalView: View {
     private var content: some View {
         switch step {
         case .name:
-            header("Waar train je voor?", "Geef je doel een naam. Een wedstrijd, of iets dat je wilt kunnen.")
-            TextField("Bijvoorbeeld Zevenheuvelenloop", text: $name)
-                .font(.title2.bold())
-                .padding(18)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-                .submitLabel(.next)
-                .onSubmit { if nameOK { goNext() } }
-            chips(["5 km", "10 km", "Halve marathon", "Marathon", "Trailrun"], selected: [name]) { name = $0 }
+            header("Waar train je voor?", "Kies een doel, of geef je eigen wedstrijd een naam.")
+            if ownName {
+                TextField("Naam van je doel, bijv. Devil's Trail", text: $name)
+                    .font(.title3.bold())
+                    .focused($nameFocused)
+                    .submitLabel(.next)
+                    .onSubmit { if nameOK { goNext() } }
+                    .padding(18)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
+            }
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                ForEach(goalPresets, id: \.title) { g in
+                    goalTile(g.icon, g.title, g.sub, !ownName && name == g.title) {
+                        ownName = false
+                        name = g.title
+                        nameFocused = false
+                    }
+                }
+                goalTile("pencil", "Anders, namelijk...", "Bijv. je eigen wedstrijd", ownName) {
+                    if !ownName { name = "" }
+                    ownName = true
+                    nameFocused = true
+                }
+            }
             if !trimmedName.isEmpty, store.event(named: trimmedName) != nil {
                 Text("Er is al een doel met deze naam. Kies een andere naam.").foregroundStyle(.orange)
             }
@@ -142,15 +161,9 @@ struct NewGoalView: View {
 
         case .method:
             header("Hoe maak je je schema?", "Je kunt het later altijd nog aanpassen.")
-            option("sparkles", "Met AI", "Beantwoord een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema.", method == .ai) {
-                method = .ai; goNext()
-            }
-            option("doc.on.clipboard", "Zelf plakken of typen", "Je hebt al een schema, van een trainer, website of AI.", method == .paste) {
-                method = .paste; goNext()
-            }
-            option("clock", "Later", "Maak eerst het doel. Trainingen voeg je later toe.", method == .later) {
-                method = .later; goNext()
-            }
+            option("sparkles", "Met AI", "Beantwoord een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema.", method == .ai) { method = .ai }
+            option("doc.on.clipboard", "Zelf plakken of typen", "Je hebt al een schema, van een trainer, website of AI.", method == .paste) { method = .paste }
+            option("clock", "Later", "Maak eerst het doel. Trainingen voeg je later toe.", method == .later) { method = .later }
 
         case .perWeek:
             header("Hoe vaak wil je lopen?", "Per week.")
@@ -326,7 +339,7 @@ struct NewGoalView: View {
     @ViewBuilder
     private var bottomBar: some View {
         switch step {
-        case .method, .openApp, .paste:
+        case .openApp, .paste:
             if step == .openApp {
                 Button("Ik heb het antwoord al") { step = .paste }
                     .font(.subheadline.bold())
@@ -377,6 +390,41 @@ struct NewGoalView: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
+    }
+
+    private let goalPresets: [(icon: String, title: String, sub: String)] = [
+        ("figure.run", "5 km", "Je eerste of snelste 5"),
+        ("figure.run", "10 km", "Een mooie klassieker"),
+        ("medal", "Halve marathon", "21,1 km"),
+        ("trophy", "Marathon", "42,2 km"),
+        ("mountain.2", "Trailrun", "Onverhard en heuvels"),
+        ("sparkles", "Beginnen met hardlopen", "Rustig opbouwen"),
+        ("heart", "Fit blijven", "Zonder wedstrijd"),
+    ]
+
+    private func goalTile(_ icon: String, _ title: String, _ sub: String, _ isOn: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    Image(systemName: icon)
+                        .font(.title3)
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 40, height: 40)
+                        .background(Theme.accent.opacity(0.15), in: Circle())
+                    Spacer()
+                    if isOn {
+                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
+                    }
+                }
+                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(2).minimumScaleFactor(0.85)
+                Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+            .overlay(RoundedRectangle(cornerRadius: 18).stroke(isOn ? Theme.accent : .clear, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
     }
 
     private func option(_ icon: String?, _ title: String, _ text: String?, _ isOn: Bool, action: @escaping () -> Void) -> some View {
