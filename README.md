@@ -68,6 +68,8 @@ cooldown
 
 In an event, each workout shows "Op Watch", or "vanaf <day>" when it shows up on the Watch later (the Watch shows the coming 7 days). Each week that is not fully on the Watch has a button "Voeg week toe". To take one workout off the Watch, swipe it left and tap "Van Watch".
 
+In a workout, "Voeg toe aan je workouts" opens Apple's preview; adding there puts it straight in your own workouts on the Watch, without a date. Apple does not tell the app whether you tapped add, so it asks afterwards; then the list shows "Bij workouts".
+
 
 ## Check that it worked
 

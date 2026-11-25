@@ -8,6 +8,7 @@ struct WorkoutDetailView: View {
 
     @Environment(Planner.self) private var planner
     @State private var showPreview = false
+    @State private var askAdded = false
     @State private var copied = false
 
     var body: some View {
@@ -21,6 +22,18 @@ struct WorkoutDetailView: View {
                     Text("\(Format.day(workout.date)) · \(event.defaultTime)")
                         .font(.headline)
                         .foregroundStyle(kind.color)
+                    if planner.customIDs.contains(workout.id) {
+                        HStack {
+                            Label("Bij je eigen workouts op je Watch", systemImage: "applewatch")
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.accent)
+                            Spacer()
+                            Button("Weg") { planner.setCustom(workout.id, false) }
+                                .font(.caption.bold())
+                                .buttonStyle(.bordered)
+                                .buttonBorderShape(.capsule)
+                        }
+                    }
                     if planner.onWatchIDs.contains(workout.id) {
                         Label(ScheduleDates.watchVisibleFrom(workout.date).map {
                                   "Toegevoegd, op je Watch vanaf \(Format.shortDay($0).lowercased())"
@@ -59,16 +72,28 @@ struct WorkoutDetailView: View {
                 Button {
                     showPreview = true
                 } label: {
-                    Label("Bekijk Watch-voorbeeld", systemImage: "applewatch")
+                    Label("Voeg toe aan je workouts", systemImage: "applewatch")
                         .font(.headline)
                         .foregroundStyle(.black)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
                 }
                 .listRowBackground(Theme.accent)
+            } footer: {
+                Text("Komt direct bij je eigen workouts op je Watch, zonder datum.")
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .workoutPreview(WorkoutBuilder.plan(for: workout), isPresented: $showPreview)
+        .onChange(of: showPreview) { wasShown, shown in
+            // Apple's preview does not tell whether "add" was tapped, so ask.
+            if wasShown && !shown && !planner.customIDs.contains(workout.id) { askAdded = true }
+        }
+        .confirmationDialog("Heb je hem toegevoegd aan je Watch?", isPresented: $askAdded, titleVisibility: .visible) {
+            Button("Ja, toegevoegd") { planner.setCustom(workout.id, true) }
+            Button("Nee", role: .cancel) {}
+        } message: {
+            Text("Dan zie je in de lijst dat hij bij je eigen workouts staat.")
+        }
     }
 }

@@ -61,7 +61,8 @@ struct EventView: View {
                                 workout: w,
                                 kind: WorkoutKind(w, scheduleName: event.name, raceDate: event.raceDate),
                                 isPast: ScheduleDates.isPast(w.date),
-                                onWatch: planner.onWatchIDs.contains(w.id)
+                                onWatch: planner.onWatchIDs.contains(w.id),
+                                custom: planner.customIDs.contains(w.id)
                             )
                         }
                         .swipeActions {

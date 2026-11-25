@@ -217,6 +217,8 @@ struct WorkoutRow: View {
     let isPast: Bool
     /// Nil hides the Watch status (for example in a preview).
     var onWatch: Bool? = nil
+    /// Added without a date through Apple's preview.
+    var custom = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -248,7 +250,11 @@ struct WorkoutRow: View {
     }
 
     private var status: (text: String, color: Color)? {
-        guard !isPast, onWatch == true else { return nil }
+        guard !isPast else { return nil }
+        if custom, ScheduleDates.watchVisibleFrom(workout.date) != nil || onWatch != true {
+            return ("Bij workouts", Theme.accent)
+        }
+        guard onWatch == true else { return nil }
         if let from = ScheduleDates.watchVisibleFrom(workout.date) {
             return ("vanaf \(Format.shortDay(from).lowercased())", .secondary)
         }

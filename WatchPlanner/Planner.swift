@@ -13,6 +13,15 @@ final class Planner {
 
     var onWatchIDs: Set<String> { Set(watchItems.compactMap(\.workoutID)) }
 
+    /// Workouts added without a date through Apple's preview. The app cannot see the
+    /// Watch's own workouts, so this is what the user told us.
+    private(set) var customIDs: Set<String> = Set(UserDefaults.standard.stringArray(forKey: "customWorkouts") ?? [])
+
+    func setCustom(_ id: String, _ added: Bool) {
+        if added { customIDs.insert(id) } else { customIDs.remove(id) }
+        UserDefaults.standard.set(Array(customIDs), forKey: "customWorkouts")
+    }
+
     func refresh(_ events: [TrainingSchedule]) async {
         watchItems = await service.watchItems(events: events)
     }
