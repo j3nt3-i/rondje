@@ -423,11 +423,15 @@ enum WorkoutText {
     }
 
     /// True when dates come from day names, so the user should pick when week 1 starts.
+    /// True when some workouts have only a weekday ("Di: intervallen"), so week 1 needs a start date.
+    /// "Week 1" headers above dated workouts ("Di 1 dec: ...") do not count.
     static func usesDayNames(_ text: String) -> Bool {
-        text.components(separatedBy: .newlines).contains { line in
-            let l = clean(line)
-            return weekday(l) != nil || match(#"^week\s*\d+"#, l) != nil
+        let lines = text.components(separatedBy: .newlines).map(clean)
+        let dated = { (l: String) in
+            match(#"\b\d{1,2}\s+(?:jan|feb|mrt|maa|apr|mei|jun|jul|aug|sep|okt|nov|dec)|\b\d{1,2}[-/]\d{1,2}"#, l) != nil
         }
+        if lines.contains(where: { weekday($0) != nil && !dated($0) }) { return true }
+        return !lines.contains(where: dated) && lines.contains { match(#"^week\s*\d+"#, $0) != nil }
     }
 
     /// Next Monday, or today when it is Monday.

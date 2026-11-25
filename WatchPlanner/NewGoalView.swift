@@ -116,6 +116,7 @@ struct NewGoalView: View {
                         } else {
                             botBubble(question(step))
                             correctionBubbles(at: step)
+                            if step == .review { reviewStatus }
                             if let pending {
                                 userBubble(pending) {}
                                 typingBubble
@@ -307,7 +308,7 @@ struct NewGoalView: View {
         case .openApp: return "Welke AI gebruik je? Plak de prompt daar en verstuur hem."
         case .paste: return method == .ai ? "Plak hier het antwoord als je terug bent." : "Plak of typ hier je schema."
         case .review:
-            return method == .later ? "Klaar om je doel te maken. Trainingen voeg je later toe." : "Gelukt! Dit zijn je trainingen."
+            return method == .later ? "Klaar om je doel te maken. Trainingen voeg je later toe." : "Dank je! Ik ga je schema lezen."
         }
     }
 
@@ -346,6 +347,8 @@ struct NewGoalView: View {
             Spacer(minLength: 60)
             Button(action: edit) {
                 Text(text)
+                    .font(text.count > 200 ? .callout : .body)
+                    .multilineTextAlignment(.leading)
                     .foregroundStyle(.black)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(Theme.accent, in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20))
@@ -405,6 +408,29 @@ struct NewGoalView: View {
         }
     }
 
+    /// While Rondje reads the pasted schedule: typing, then how it went.
+    @ViewBuilder
+    private var reviewStatus: some View {
+        if method != .later {
+            if isReading || thinking {
+                HStack(spacing: 10) {
+                    typingBubble
+                    Text(isReading ? "Schema lezen..." : "Apple Intelligence leest mee...")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+            } else {
+                switch result {
+                case .success(let e):
+                    botBubble("Gelukt! Ik vond \(e.workouts.count) trainingen. Kijk even of ze kloppen.")
+                case .failure(let error):
+                    botBubble("Sorry, daar kwam ik niet uit. \(error.localizedDescription) Plak je het hele antwoord nog een keer?")
+                default:
+                    EmptyView()
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var reviewCard: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -420,13 +446,7 @@ struct NewGoalView: View {
                 if WorkoutText.usesDayNames(text) {
                     DatePicker("Week 1 begint op", selection: $weekStart, displayedComponents: .date).font(.subheadline)
                 }
-                if isReading || thinking {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                        Text(isReading ? "Schema lezen..." : "Apple Intelligence leest mee...").foregroundStyle(.secondary)
-                    }
-                }
-                switch isReading ? nil : result {
+                switch isReading || thinking ? nil : result {
                 case .success(let e):
                     Text("\(e.workouts.count) trainingen").font(.subheadline.bold())
                     if !aiWorkouts.isEmpty {
@@ -441,9 +461,10 @@ struct NewGoalView: View {
                                    isPast: ScheduleDates.isPast(w.date))
                     }
                     Toggle("Meteen op Watch zetten", isOn: $planNow)
-                case .failure(let error) where !thinking:
-                    Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                    Button("Opnieuw plakken") { step = .paste }.bold()
+                case .failure:
+                    Button("Opnieuw plakken", systemImage: "doc.on.clipboard") { step = .paste }
+                        .bold()
+                        .foregroundStyle(Theme.accent)
                 default:
                     EmptyView()
                 }
@@ -568,6 +589,7 @@ struct NewGoalView: View {
                 guard let s = strings.first, !s.isEmpty else { return }
                 Task { @MainActor in
                     text = s
+                    typedAnswers[.paste] = s.trimmingCharacters(in: .whitespacesAndNewlines)
                     clearComposer()
                     step = .review
                 }
@@ -635,6 +657,7 @@ struct NewGoalView: View {
         defer { pending = nil }
         if step == .paste {
             text = raw
+            typedAnswers[.paste] = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             goNext()
             return
         }
