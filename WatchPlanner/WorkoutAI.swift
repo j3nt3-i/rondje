@@ -102,51 +102,7 @@ enum WorkoutAI {
         return e
     }
 
-    // MARK: - Understanding loose chat answers
-
-    /// "ergens half december" -> a date. Only used when the rules did not understand it.
-    static func readDate(_ text: String, today: Date = .now) async -> Date? {
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
-            let f = DateFormatter()
-            f.locale = Locale(identifier: "en_US_POSIX")
-            f.dateFormat = "yyyy-MM-dd"
-            let prompt = "Today is \(f.string(from: today)). The runner answered the question 'When is the race?' with: \"\(text)\". Give that date. If they name a period like 'half december', pick the middle; 'eind januari' is the last day; a weekday without a date is the next one."
-            guard let r = try? await LanguageModelSession().respond(to: prompt, generating: GenDate.self,
-                                                                     options: GenerationOptions(temperature: 0)).content,
-                  let d = f.date(from: r.date), d >= Calendar.current.startOfDay(for: today) else { return nil }
-            return d
-        }
-        #endif
-        return nil
-    }
-
-    /// "een keer of vier, soms vijf" -> 4
-    static func readCount(_ text: String) async -> Int? {
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
-            let prompt = "The runner answered the question 'How many times per week do you want to run?' with: \"\(text)\". How many times per week? If they give a range, take the lower number. If the answer holds no number of runs, give 0."
-            let n = try? await LanguageModelSession().respond(to: prompt, generating: GenCount.self,
-                                                              options: GenerationOptions(temperature: 0)).content.timesPerWeek
-            return n.flatMap { $0 > 0 ? $0 : nil }
-        }
-        #endif
-        return nil
-    }
-
-    /// "ongeveer vijftien kilometer met flink klimmen, 500 meter" -> (15, 500)
-    static func readTrail(_ text: String) async -> (km: Double?, up: Int?) {
-        #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
-            let prompt = "The runner described their trail race: \"\(text)\". Give the distance in kilometers and the total elevation gain in meters. Use 0 for what they did not mention."
-            if let r = try? await LanguageModelSession().respond(to: prompt, generating: GenTrail.self,
-                                                                 options: GenerationOptions(temperature: 0)).content {
-                return (r.kilometers > 0 ? r.kilometers : nil, r.elevationMeters > 0 ? r.elevationMeters : nil)
-            }
-        }
-        #endif
-        return (nil, nil)
-    }
+    // MARK: - Goal chat
 
     /// Why the goal chat cannot use Apple Intelligence, or nil when it can.
     static var chatOffReason: String? {
@@ -185,6 +141,8 @@ enum WorkoutAI {
         var kind: Kind
         var field: Field?
         var value: String
+        /// False for nonsense as an answer, like "Pizza" as a running goal.
+        var fits: Bool
     }
 
     /// Reads one chat message: "o nee, ik bedoelde 10 december" -> correction of raceDate, "10 december".
@@ -227,7 +185,7 @@ enum WorkoutAI {
             case .wishes: .wishes
             case .none: nil
             }
-            return Turn(kind: kind, field: field, value: r.value.trimmingCharacters(in: .whitespacesAndNewlines))
+            return Turn(kind: kind, field: field, value: r.value.trimmingCharacters(in: .whitespacesAndNewlines), fits: r.fits)
         }
         #endif
         return nil
@@ -291,29 +249,6 @@ enum WorkoutAI {
 #if canImport(FoundationModels)
 @available(iOS 26.0, macOS 26.0, *)
 @Generable
-struct GenDate {
-    @Guide(description: "The date as yyyy-MM-dd")
-    var date: String
-}
-
-@available(iOS 26.0, macOS 26.0, *)
-@Generable
-struct GenCount {
-    @Guide(description: "Runs per week, or 0 when the answer holds no number", .range(0...7))
-    var timesPerWeek: Int
-}
-
-@available(iOS 26.0, macOS 26.0, *)
-@Generable
-struct GenTrail {
-    @Guide(description: "Distance in kilometers, 0 if not mentioned")
-    var kilometers: Double
-    @Guide(description: "Elevation gain in meters, 0 if not mentioned")
-    var elevationMeters: Int
-}
-
-@available(iOS 26.0, macOS 26.0, *)
-@Generable
 enum GenKind { case answer, correction, question, other }
 
 @available(iOS 26.0, macOS 26.0, *)
@@ -329,5 +264,7 @@ struct GenTurn {
     var field: GenField
     @Guide(description: "For an answer or correction: the value exactly in the runner's words, like '4', '20 december' or 'Kerstloop'. Empty when the runner gave no new value.")
     var value: String
+    @Guide(description: "False when the message is nonsense as an answer to the current question, like 'pizza' as a running goal or 'banaan' as how often to run. True for any real answer, also short ones or unusual race names.")
+    var fits: Bool
 }
 #endif

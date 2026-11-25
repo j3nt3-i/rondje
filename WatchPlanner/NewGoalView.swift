@@ -62,6 +62,15 @@ struct NewGoalView: View {
     @State private var pending: String?
     // Rondje already showed it was thinking, so the next question comes without another pause.
     @State private var skipPause = false
+    // A half answer Rondje asks more about: "13" (which month?) or "december" (which day?).
+    @State private var heldDay: Int?
+    @State private var heldMonth: Int?
+    // Choices for that follow-up question, shown as pills; tapping one sends it.
+    @State private var options: [String] = []
+    // A trail answer with only the distance or only the climb: Rondje asks for the other part.
+    @State private var trailMissing: TrailPart?
+    // An answer Rondje could not use; sending it again means you mean it.
+    @State private var doubted: String?
 
     private struct Correction: Identifiable {
         let id = UUID()
@@ -149,6 +158,11 @@ struct NewGoalView: View {
             .animation(.snappy, value: step)
             .animation(.snappy, value: botTyping)
             .task(id: step) {
+                options = []
+                heldDay = nil
+                heldMonth = nil
+                trailMissing = nil
+                doubted = nil
                 // A short "typing" moment before each question.
                 // A moment of "thinking", then the question appears letter by letter.
                 streamed = ""
@@ -506,6 +520,20 @@ struct NewGoalView: View {
 
     @ViewBuilder
     private var suggestionChips: some View {
+        if !options.isEmpty {
+            ForEach(options, id: \.self) { o in
+                GoalPill(title: o, isOn: false) {
+                    composer = o
+                    Task { await send() }
+                }
+            }
+        } else {
+            stepChips
+        }
+    }
+
+    @ViewBuilder
+    private var stepChips: some View {
         switch step {
         case .name:
             ForEach(goalPresets, id: \.title) { g in
@@ -604,8 +632,8 @@ struct NewGoalView: View {
             return
         }
         // Plain answers ("4", "14 december", a goal from the list) need no Apple Intelligence.
-        if isPlainAnswer(t), await take(t) {
-            goNext()
+        if isPlainAnswer(t) {
+            act(on: take(t), said: t)
             return
         }
         if !t.isEmpty, WorkoutAI.isAvailable, let field = NewGoalView.aiFields[step] {
@@ -629,7 +657,16 @@ struct NewGoalView: View {
             reply(t, explain(step))
             return
         }
-        if await take(t) { clearComposer(); goNext() } else { reply(t, explain(step)) }
+        act(on: take(t), said: t)
+    }
+
+    /// Moves on after an answer, asks more about a half answer, or explains the question.
+    private func act(on taken: Taken, said t: String) {
+        switch taken {
+        case .ok: goNext()
+        case .ask(let more): reply(t, more)
+        case .no: reply(t, explain(step))
+        }
     }
 
     /// Answers the rules read without doubt, so they go through without waiting.
@@ -637,7 +674,7 @@ struct NewGoalView: View {
         switch step {
         case .name: return goalPresets.contains { $0.title.lowercased() == t.lowercased() }
         case .perWeek: return t.range(of: #"^[1-7]\s*(x|keer)?$"#, options: [.regularExpression, .caseInsensitive]) != nil
-        case .date: return NewGoalView.date(from: t) != nil
+        case .date: return NewGoalView.date(from: t) != nil || NewGoalView.dayNumber(t) != nil || NewGoalView.monthNumber(t) != nil
         default: return false
         }
     }
@@ -654,7 +691,9 @@ struct NewGoalView: View {
 
         // A change to an earlier answer. Without a usable new value, ask that question again.
         if gives, let target, target != step, pastSteps.contains(target) {
-            if let said = await understand({ await change(target, to: [turn.value, t]) }) ?? nil {
+            // Read your own words first; for a name or a free answer, the part Apple Intelligence picked out.
+            let free: Set<Step> = [.name, .level, .aim, .wishes]
+            if let said = change(target, to: free.contains(target) ? [turn.value] : [t, turn.value]) {
                 reply(t, "\(said) \(ask(step))")
             } else {
                 jump(to: target)
@@ -668,60 +707,105 @@ struct NewGoalView: View {
         let unsure = step == .name || NewGoalView.saysNo(t)
         let asks = turn.kind == .question && (t.contains("?") || !unsure)
         let ok = answers && !asks && (gives || unsure)
+        // Nonsense, like "Pizza" as a goal. Sending the same again means you mean it.
+        if ok, !turn.fits, turn.kind != .correction, doubted != t {
+            doubted = t
+            reply(t, "Hier kan ik niks mee. \(explain(step))")
+            return
+        }
         if ok {
             // Free answers keep your own words; a name only when Apple Intelligence did not make it up.
             let tries: [String] = switch step {
             case .level, .aim, .wishes: [t]
             case .name: t.lowercased().contains(turn.value.lowercased()) && !turn.value.isEmpty ? [turn.value] : [t]
-            default: [turn.value, t].filter { !$0.isEmpty }
+            default: [t, turn.value].filter { !$0.isEmpty }
             }
-            for v in tries where await understand({ await take(v) }) ?? false {
-                clearComposer()
-                goNext()
+            for v in tries {
+                let taken = take(v)
+                if case .no = taken { continue }
+                act(on: taken, said: t)
                 return
             }
         }
-        reply(t, explain(step))
+        reply(t, turn.kind == .other || !turn.fits ? "Hier kan ik niks mee. \(explain(step))" : explain(step))
     }
 
-    /// Reads an answer to the current question. False when it does not fit.
-    private func take(_ t: String) async -> Bool {
+    private enum Taken { case ok, no, ask(String) }
+    private enum TrailPart { case km, up }
+
+    /// Reads an answer to the current question with the rules. Nothing is guessed:
+    /// a half answer ("13", "december", "3 of 4") gets a follow-up question instead.
+    private func take(_ t: String) -> Taken {
         switch step {
         case .name:
             let match = goalPresets.first { $0.title.lowercased() == t.lowercased() }
             ownName = match == nil
             name = match?.title ?? t
-            return nameOK
+            return nameOK ? .ok : .no
+        case .trail where trailMissing != nil:
+            // The follow-up: "weet ik niet" keeps what you said, a number fills the missing part.
+            if NewGoalView.saysNo(t) { break }
+            let r = NewGoalView.trail(from: t)
+            let n = t.split(whereSeparator: { !$0.isNumber && $0 != "," && $0 != "." }).first.map(String.init)
+            if trailMissing == .up { guard let up = r.up ?? n else { return .no }; trailUp = up }
+            else { guard let km = r.km ?? n else { return .no }; trailKm = km.replacingOccurrences(of: ".", with: ",") }
         case .trail where NewGoalView.saysNo(t):
             trailKm = ""
             trailUp = ""
         case .trail:
-            var r = NewGoalView.trail(from: t)
-            if r.km == nil && r.up == nil && NewGoalView.mentionsNumber(t), WorkoutAI.isAvailable {
-                let ai = await WorkoutAI.readTrail(t)
-                r = (ai.km.map { String(format: "%g", $0).replacingOccurrences(of: ".", with: ",") }, ai.up.map(String.init))
-            }
-            guard r.km != nil || r.up != nil else { return false }
+            let r = NewGoalView.trail(from: t)
+            guard r.km != nil || r.up != nil else { return .no }
             trailKm = r.km ?? ""
             trailUp = r.up ?? ""
+            if r.up == nil {
+                trailMissing = .up
+                return .ask("En hoeveel hoogtemeters heeft hij? Weet je het niet, ook goed.")
+            }
+            if r.km == nil {
+                trailMissing = .km
+                return .ask("En hoeveel kilometer is hij?")
+            }
         case .date where NewGoalView.saysNo(t):
             hasDate = false
         case .date:
-            var parsed = NewGoalView.date(from: t) ?? NewGoalView.dateInText(t)
-            if parsed == nil && NewGoalView.mentionsDate(t) && WorkoutAI.isAvailable { parsed = await WorkoutAI.readDate(t) }
-            guard let d = parsed else { return false }
-            bigDay = d
-            hasDate = true
+            if let d = NewGoalView.date(from: t) ?? NewGoalView.dateInText(t) {
+                bigDay = d
+                hasDate = true
+                break
+            }
+            let day = NewGoalView.dayNumber(t) ?? heldDay
+            let month = NewGoalView.monthNumber(t) ?? heldMonth
+            switch (day, month) {
+            case let (d?, m?):
+                guard let date = NewGoalView.date(from: "\(d) \(NewGoalView.months[m - 1])") else { return .no }
+                bigDay = date
+                hasDate = true
+            case let (d?, nil):
+                heldDay = d
+                let next = NewGoalView.nextDays(d, count: 2)
+                guard next.count == 2 else { return .no }
+                options = next.map { "\(d) \(NewGoalView.months[Calendar.current.component(.month, from: $0) - 1])" }
+                return .ask("Welke \(d)e bedoel je? \(Format.day(dayString(next[0]))) of \(Format.day(dayString(next[1])).lowercased())?")
+            case let (nil, m?):
+                heldMonth = m
+                return .ask("Welke dag in \(NewGoalView.months[m - 1])?")
+            default:
+                return .no
+            }
         case .method:
             let l = t.lowercased()
-            if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
-            else if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
+            if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
+            else if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
             else if ["ja", "graag", "help", "maak", "ai", "claude", "chatgpt", "prima", "oké", "ok"].contains(where: l.contains) { method = .ai }
-            else { return false }
+            else { return .no }
         case .perWeek:
-            var parsed = NewGoalView.count(from: t)
-            if parsed == nil && NewGoalView.mentionsNumber(t) && WorkoutAI.isAvailable { parsed = await WorkoutAI.readCount(t) }
-            guard let n = parsed, (1...7).contains(n) else { return false }
+            let numbers = Set(t.split(whereSeparator: { !$0.isNumber }).compactMap { Int($0) }.filter { (1...7).contains($0) })
+            if numbers.count > 1 {
+                let both = numbers.sorted()
+                options = both.map { "\($0)x per week" }
+                return .ask("Wordt het \(both.map(String.init).joined(separator: " of ")) keer per week?")
+            }
+            guard let n = NewGoalView.count(from: t), (1...7).contains(n) else { return .no }
             perWeek = n
         case .level:
             level = t
@@ -739,9 +823,9 @@ struct NewGoalView: View {
         case .wishes:
             ownWish = t
         default:
-            return false
+            return .no
         }
-        return true
+        return .ok
     }
 
     /// "Oeps, het is eigenlijk 15 december": changes an earlier answer and stays on this question.
@@ -798,20 +882,18 @@ struct NewGoalView: View {
 
     /// Puts a new value in an earlier answer, trying each text in turn ("4" from Apple Intelligence,
     /// then your own words). Nil when none can be read, or nothing changes.
-    private func change(_ s: Step, to values: [String]) async -> String? {
+    private func change(_ s: Step, to values: [String]) -> String? {
         for v in values where !v.isEmpty {
-            if let said = await change(s, to: v) { return said }
+            if let said = change(s, to: v) { return said }
         }
         return nil
     }
 
-    private func change(_ s: Step, to value: String) async -> String? {
+    private func change(_ s: Step, to value: String) -> String? {
         let before = answer(s)
         switch s {
         case .date:
-            var d = NewGoalView.date(from: value) ?? NewGoalView.dateInText(value)
-            if d == nil && NewGoalView.mentionsDate(value) && WorkoutAI.isAvailable { d = await WorkoutAI.readDate(value) }
-            guard let d else { return nil }
+            guard let d = NewGoalView.date(from: value) ?? NewGoalView.dateInText(value) else { return nil }
             bigDay = d
             hasDate = true
         case .perWeek:
@@ -863,14 +945,14 @@ struct NewGoalView: View {
     /// What Rondje says when you ask back, or when your answer did not fit the question.
     private func explain(_ s: Step) -> String {
         switch s {
-        case .name: return "Waar je voor traint: een wedstrijd, een afstand, of gewoon fit blijven. Kies hierboven, of typ bijvoorbeeld Devil's Trail."
-        case .trail: return "Hoe lang je trail is en hoeveel hoogtemeters. Typ bijvoorbeeld 15 km, 400 hoogtemeters, of weet ik niet."
-        case .date: return "De dag van je wedstrijd of doel. Typ bijvoorbeeld 13 december, of nog geen datum."
+        case .name: return "Waar train je voor? Een wedstrijd, een afstand, of gewoon fit blijven. Kies hierboven, of typ bijvoorbeeld Devil's Trail."
+        case .trail: return "Hoe lang is je trail, en hoeveel hoogtemeters? Typ bijvoorbeeld 15 km, 400 hoogtemeters, of weet ik niet."
+        case .date: return "Op welke dag is je wedstrijd of doel? Typ bijvoorbeeld 13 december, of nog geen datum."
         case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Typ ja graag, ik heb er al een, of later."
         case .perWeek: return "Ik bedoel: hoe vaak per week je wilt hardlopen. Typ bijvoorbeeld 3."
-        case .level: return "Hoe ver je nu kunt lopen, en hoe zwaar dat voelt. Bijvoorbeeld: 5 km lukt, maar het is zwaar."
-        case .aim: return "Wat je wilt halen, bijvoorbeeld uitlopen of een tijd neerzetten. Kies er een of meer, of typ het zelf."
-        case .wishes: return "Wensen voor je schema, bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
+        case .level: return "Hoe ver kun je nu lopen, en hoe zwaar voelt dat? Bijvoorbeeld: 5 km lukt, maar het is zwaar."
+        case .aim: return "Wat wil je halen? Bijvoorbeeld uitlopen of een tijd neerzetten. Kies er een of meer, of typ het zelf."
+        case .wishes: return "Heb je wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
         case .paste: return "Plak hier het hele antwoord van je AI-app, met alle trainingen erin."
         default: return "Kies een van de knoppen hieronder."
         }
@@ -934,7 +1016,6 @@ struct NewGoalView: View {
         let patterns = [
             #"\b\d{1,2}\s+(?:jan|feb|mrt|maa|apr|mei|jun|jul|aug|sep|okt|nov|dec)[a-z]*(?:\s+\d{4})?"#,
             #"\b\d{1,2}[-/]\d{1,2}(?:[-/]\d{4})?\b"#,
-            #"\b(?:begin|half|midden|eind)\s+[a-z]+"#,
         ]
         for p in patterns {
             if let r = l.range(of: p, options: .regularExpression), let d = date(from: String(l[r]), now: now) { return d }
@@ -994,11 +1075,39 @@ struct NewGoalView: View {
         return (km, up)
     }
 
-    private static let months = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus",
+    /// A lone day number: "13", "de 13e", "rond de 13de" -> 13
+    static func dayNumber(_ text: String) -> Int? {
+        let l = text.lowercased()
+        guard let re = try? NSRegularExpression(pattern: #"\b(\d{1,2})(?:e|de|ste)?\b"#) else { return nil }
+        let found = re.matches(in: l, range: NSRange(l.startIndex..., in: l))
+            .compactMap { Range($0.range(at: 1), in: l).flatMap { Int(l[$0]) } }
+        guard found.count == 1, l.filter(\.isNumber).count == String(found[0]).count, (1...31).contains(found[0]) else { return nil }
+        return found[0]
+    }
+
+    /// A month named in the text, with small typos: "half devember" -> 12
+    static func monthNumber(_ text: String) -> Int? {
+        let words = fixMonthTypos(text.lowercased()).split(whereSeparator: { !$0.isLetter }).map(String.init)
+        return months.firstIndex { m in words.contains { $0.count >= 3 && m.hasPrefix($0) } }.map { $0 + 1 }
+    }
+
+    /// The next days with this day number: 13 -> 13 december, 13 januari
+    static func nextDays(_ day: Int, count: Int, now: Date = .now) -> [Date] {
+        let cal = Calendar.current
+        var from = cal.startOfDay(for: now)
+        var out: [Date] = []
+        while out.count < count, let d = cal.nextDate(after: from, matching: DateComponents(day: day), matchingPolicy: .strict) {
+            out.append(d)
+            from = d
+        }
+        return out
+    }
+
+    static let months = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus",
                                  "september", "oktober", "november", "december"]
     private static let weekdays = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
 
-    /// "13 december", "13 dec 2026", "13-12-2026", "13/12", "half december", "eind januari",
+    /// "13 december", "13 dec 2026", "13-12-2026", "13/12",
     /// "zaterdag", "volgende week zaterdag" -> the next such day from today
     static func date(from text: String, now: Date = .now) -> Date? {
         let cal = Calendar.current
@@ -1006,20 +1115,6 @@ struct NewGoalView: View {
         var t = text.lowercased().trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ".", with: "")
         t = fixMonthTypos(t)
         t = t.replacingOccurrences(of: #"^(?:ergens|rond|rondom|ongeveer|zo'n|op|het is|de race is)\s+"#, with: "", options: .regularExpression)
-
-        // "begin / half / midden / eind <maand>"
-        if let m = t.range(of: #"^(begin|half|halverwege|midden|eind|einde)\s+([a-z]+)"#, options: .regularExpression) {
-            let parts = t[m].split(separator: " ").map(String.init)
-            if let mi = months.firstIndex(where: { $0.hasPrefix(parts[1].prefix(3)) }) {
-                var c = DateComponents(year: cal.component(.year, from: today), month: mi + 1, day: 1)
-                guard var first = cal.date(from: c) else { return nil }
-                if cal.date(byAdding: .month, value: 1, to: first)! <= today { c.year! += 1; first = cal.date(from: c) ?? first }
-                let days = cal.range(of: .day, in: .month, for: first)?.count ?? 30
-                let day = parts[0] == "begin" ? 3 : parts[0].hasPrefix("eind") ? days : 15
-                guard let d = cal.date(byAdding: .day, value: day - 1, to: first) else { return nil }
-                return d < today ? cal.date(byAdding: .year, value: 1, to: d) : d
-            }
-        }
 
         // "zaterdag", "deze zaterdag", "volgende week zaterdag"
         if let wi = weekdays.firstIndex(where: { t.hasSuffix($0) }), !t.contains(where: \.isNumber) {
@@ -1035,6 +1130,7 @@ struct NewGoalView: View {
 
         t = t.replacingOccurrences(of: #"^(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo)\s+"#,
                                    with: "", options: .regularExpression)
+
         let f = DateFormatter()
         f.locale = Locale(identifier: "nl_NL")
         for format in ["d MMMM yyyy", "d MMM yyyy", "d-M-yyyy", "d/M/yyyy", "yyyy-M-d"] {
