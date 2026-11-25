@@ -166,6 +166,18 @@ struct NewGoalView: View {
 
         case .date:
             header("Wanneer is de grote dag?", "Rondje telt met je af. Geen vaste dag? Dat kan ook.")
+            if ownName && !trimmedName.isEmpty {
+                Button {
+                    if let url = searchURL { openURL(url) }
+                } label: {
+                    Label("Zoek de datum online", systemImage: "magnifyingglass")
+                        .font(.subheadline.bold())
+                        .padding(.horizontal, 16).padding(.vertical, 11)
+                        .background(Theme.pill, in: Capsule())
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
+                }
+                .buttonStyle(BounceStyle())
+            }
             DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
                 .datePickerStyle(.graphical)
                 .tint(Theme.accent)
@@ -524,9 +536,26 @@ struct NewGoalView: View {
         return isTrail && !km.isEmpty ? "\(n) \(km) km" : n
     }
 
-    /// "Het is een trailrun van 15 km met 400 hoogtemeters."
+    /// A web search for the race's date, distance and elevation, opened in the browser.
+    private var searchURL: URL? {
+        let year = Calendar.current.component(.year, from: .now)
+        var c = URLComponents(string: "https://www.google.com/search")
+        c?.queryItems = [URLQueryItem(name: "q", value: "\(trimmedName) \(year) datum afstand hoogtemeters")]
+        return c?.url
+    }
+
+    /// Extra lines for the prompt: trail details, and for a named race, ask the AI to look it up.
     private var details: String {
-        guard isTrail else { return "" }
+        var lines: [String] = []
+        if isTrail { lines.append(trailDetails) }
+        if ownName && !trimmedName.isEmpty {
+            lines.append("Zoek de datum, afstand en hoogtemeters van \(trimmedName) op als je die niet weet, en houd daar rekening mee in het schema.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    /// "Het is een trailrun van 15 km met 400 hoogtemeters."
+    private var trailDetails: String {
         let km = trailKm.trimmingCharacters(in: .whitespaces), up = trailUp.trimmingCharacters(in: .whitespaces)
         switch (km.isEmpty, up.isEmpty) {
         case (false, false): return "Het is een trailrun van \(km) km met \(up) hoogtemeters."
