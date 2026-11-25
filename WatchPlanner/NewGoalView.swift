@@ -21,6 +21,9 @@ struct NewGoalView: View {
     @State private var step: Step = .name
     @State private var method: Method = .ai
     @State private var botTyping = true
+    /// The question as it is being "typed" out, letter by letter.
+    @State private var streamed = ""
+    @State private var streaming = false
 
     // Goal
     @State private var name = ""
@@ -74,10 +77,11 @@ struct NewGoalView: View {
                         }
                         if botTyping || understanding {
                             typingBubble
+                        } else if streaming {
+                            botBubble(streamed)
                         } else {
                             botBubble(question(step))
                             suggestions
-                                .padding(.leading, 36)
                                 .transition(.opacity)
                             stepCard
                         }
@@ -89,10 +93,12 @@ struct NewGoalView: View {
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: botTyping) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: streamed) { proxy.scrollTo("bottom", anchor: .bottom) }
+                .onChange(of: streaming) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
             .safeAreaInset(edge: .bottom) {
-                if !botTyping && step != .method {
+                if !botTyping && !streaming && step != .method {
                     dock
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -117,9 +123,21 @@ struct NewGoalView: View {
             .animation(.snappy, value: botTyping)
             .task(id: step) {
                 // A short "typing" moment before each question.
+                // A moment of "thinking", then the question appears letter by letter.
                 botTyping = true
-                try? await Task.sleep(for: .milliseconds(450))
+                streamed = ""
+                try? await Task.sleep(for: .milliseconds(350))
+                guard !Task.isCancelled else { return }
+                let full = question(step)
                 botTyping = false
+                streaming = true
+                let pause = min(0.018, 0.9 / Double(max(full.count, 1)))
+                for i in 1...max(full.count, 1) {
+                    guard !Task.isCancelled else { return }
+                    streamed = String(full.prefix(i))
+                    try? await Task.sleep(for: .seconds(pause))
+                }
+                streaming = false
                 // Keep the keyboard up where you can type an answer.
                 composerFocused = typingStep && !showCalendar
             }
@@ -246,20 +264,13 @@ struct NewGoalView: View {
         }
     }
 
+    /// Rondje's text: no bubble and no icon, like an AI assistant's answer.
     private func botBubble(_ text: String) -> some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            Image(systemName: "figure.run")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.black)
-                .frame(width: 28, height: 28)
-                .background(Theme.accent, in: Circle())
-                .accessibilityHidden(true)
-            Text(text)
-                .padding(.horizontal, 14).padding(.vertical, 10)
-                .background(Theme.pill, in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 6, bottomTrailingRadius: 20, topTrailingRadius: 20))
-            Spacer(minLength: 40)
-        }
-        .transition(.opacity.combined(with: .move(edge: .bottom)))
+        Text(text)
+            .font(.body)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.trailing, 24)
+            .padding(.vertical, 4)
     }
 
     private func userBubble(_ text: String, edit: @escaping () -> Void) -> some View {
@@ -276,27 +287,17 @@ struct NewGoalView: View {
         }
     }
 
+    /// A pulsing dot while Rondje "thinks", like Claude and ChatGPT.
     private var typingBubble: some View {
-        HStack(alignment: .bottom, spacing: 8) {
-            Image(systemName: "figure.run")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.black)
-                .frame(width: 28, height: 28)
-                .background(Theme.accent, in: Circle())
-            TimelineView(.animation) { ctx in
-                let t = ctx.date.timeIntervalSinceReferenceDate
-                HStack(spacing: 5) {
-                    ForEach(0..<3) { i in
-                        Circle().fill(.secondary)
-                            .frame(width: 7, height: 7)
-                            .opacity(0.35 + 0.65 * max(0, sin(t * 6 - Double(i) * 0.8)))
-                    }
-                }
-            }
-            .padding(.horizontal, 16).padding(.vertical, 14)
-            .background(Theme.pill, in: Capsule())
-            Spacer()
+        TimelineView(.animation) { ctx in
+            let t = ctx.date.timeIntervalSinceReferenceDate
+            Circle()
+                .fill(Theme.accent)
+                .frame(width: 12, height: 12)
+                .scaleEffect(0.75 + 0.25 * sin(t * 6))
         }
+        .frame(height: 24)
+        .padding(.vertical, 4)
         .accessibilityLabel("Rondje typt")
     }
 
@@ -320,7 +321,6 @@ struct NewGoalView: View {
             }
             .padding(16)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            .padding(.leading, 36)
         case .date where showCalendar:
             VStack(spacing: 10) {
                 DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
@@ -334,7 +334,6 @@ struct NewGoalView: View {
             }
             .padding(12)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            .padding(.leading, 36)
         case .review:
             reviewCard
         default:
@@ -391,7 +390,6 @@ struct NewGoalView: View {
         }
         .padding(16)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-        .padding(.leading, 36)
     }
 
     // MARK: - Answer controls at the bottom
