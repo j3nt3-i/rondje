@@ -12,6 +12,9 @@ struct ImportView: View {
     @State private var planNow = true
     @State private var promptCopied = false
     @State private var saveError: String?
+    @State private var weekStart = WorkoutText.defaultWeekStart()
+    @State private var customName = ""
+    @State private var customTime: Date?
 
     var body: some View {
         NavigationStack {
@@ -34,11 +37,31 @@ struct ImportView: View {
                         .buttonBorderShape(.capsule)
                     }
                     TextEditor(text: $text)
-                        .font(.system(.callout, design: .monospaced))
+                        .font(.callout)
                         .frame(minHeight: 200)
                         .scrollContentBackground(.hidden)
+                        .overlay(alignment: .topLeading) {
+                            if text.isEmpty {
+                                Text("Plak of typ je schema, bijvoorbeeld:\n\nZevenheuvelenloop\nWeek 1\nDinsdag: 10 min inlopen, 6 keer 2 min stevig met 1 min rust, uitlopen\nZondag: 12 km rustig")
+                                    .font(.callout)
+                                    .foregroundStyle(.tertiary)
+                                    .padding(.top, 8)
+                                    .padding(.leading, 5)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                } header: {
+                    Text("Je schema")
                 } footer: {
-                    Text("Kopieer de prompt, plak hem in Claude met je doel eronder, en plak het antwoord hier. JSON werkt ook.")
+                    Text("Zoals je het hebt: met datums, of met weken en dagen. Een schema van Claude werkt ook, met of zonder de prompt.")
+                }
+
+                if WorkoutText.usesDayNames(text) {
+                    Section {
+                        DatePicker("Week 1 begint op", selection: $weekStart, displayedComponents: .date)
+                    } footer: {
+                        Text("Je schema noemt dagen in plaats van datums. Kies de maandag waarop je begint.")
+                    }
                 }
 
                 if let result {
@@ -80,13 +103,13 @@ struct ImportView: View {
         Section {
             HStack(spacing: 12) {
                 KindIcon(kind: .race)
-                VStack(alignment: .leading) {
-                    Text(event.name).font(.headline)
-                    Text("\(event.workouts.count) trainingen · start \(event.defaultTime)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                TextField("Naam van het event", text: $customName, prompt: Text(parsedName ?? "Naam"))
+                    .font(.headline)
             }
+            DatePicker("Starttijd", selection: timeBinding(event), displayedComponents: .hourAndMinute)
+            Text("\(event.workouts.count) trainingen")
+                .font(.caption)
+                .foregroundStyle(.secondary)
             if store.event(named: event.name) != nil {
                 Label("Vervangt het bestaande event met deze naam.", systemImage: "arrow.triangle.2.circlepath")
                     .font(.callout)
@@ -101,9 +124,33 @@ struct ImportView: View {
         }
     }
 
+    /// Parsed program with the name and time the user may have changed.
     private var result: Result<TrainingSchedule, Error>? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return Result { try WorkoutText.program(text) }
+        return Result {
+            var e = try WorkoutText.program(text, weekStart: weekStart)
+            let name = customName.trimmingCharacters(in: .whitespaces)
+            if !name.isEmpty { e.name = name }
+            if let customTime {
+                let c = Calendar.current.dateComponents([.hour, .minute], from: customTime)
+                e.defaultTime = String(format: "%02d:%02d", c.hour ?? 7, c.minute ?? 0)
+            }
+            return e
+        }
+    }
+
+    private var parsedName: String? {
+        try? WorkoutText.program(text, weekStart: weekStart).name
+    }
+
+    private func timeBinding(_ event: TrainingSchedule) -> Binding<Date> {
+        Binding {
+            if let customTime { return customTime }
+            let t = ScheduleDates.time(event.defaultTime) ?? (7, 0)
+            return Calendar.current.date(bySettingHour: t.hour, minute: t.minute, second: 0, of: .now) ?? .now
+        } set: {
+            customTime = $0
+        }
     }
 
     private var event: TrainingSchedule? {

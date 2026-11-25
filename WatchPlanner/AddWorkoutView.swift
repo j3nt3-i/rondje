@@ -17,10 +17,10 @@ struct AddWorkoutView: View {
     }
 
     private let examples = [
-        Example(title: "Duurloop", text: "10 km z2"),
-        Example(title: "Intervallen", text: "warmup 10 min z2\n5x 3 min z4 / 2 min z2\ncooldown"),
-        Example(title: "Heuvels", text: "warmup 15 min z2\n6x 45 sec / 90 sec z2\ncooldown"),
-        Example(title: "Baan", text: "warmup 2 km z2\n8x 400 m z4 / 200 m z1\ncooldown"),
+        Example(title: "Duurloop", text: "10 km rustig"),
+        Example(title: "Intervallen", text: "10 min inlopen, 5 keer 3 min hard met 2 min rustig, uitlopen"),
+        Example(title: "Heuvels", text: "15 min inlopen, 6 keer 45 sec heuvel op, 90 sec wandelend terug, uitlopen"),
+        Example(title: "Baan", text: "2 km inlopen, 8x 400 m snel met 200 m dribbel, 1 km uitlopen"),
     ]
 
     var body: some View {
@@ -34,13 +34,11 @@ struct AddWorkoutView: View {
 
                 Section {
                     TextEditor(text: $text)
-                        .font(.system(.body, design: .monospaced))
                         .frame(minHeight: 110)
                         .scrollContentBackground(.hidden)
                         .overlay(alignment: .topLeading) {
                             if text.isEmpty {
-                                Text("warmup 10 min z2\n5x 3 min z4 / 2 min z2\ncooldown")
-                                    .font(.system(.body, design: .monospaced))
+                                Text("Bijvoorbeeld: 10 min inlopen, 5 keer 3 min hard met 2 min rust, uitlopen")
                                     .foregroundStyle(.tertiary)
                                     .padding(.top, 8)
                                     .padding(.leading, 5)
@@ -48,9 +46,9 @@ struct AddWorkoutView: View {
                             }
                         }
                 } header: {
-                    Text("Training")
+                    Text("Beschrijf je training")
                 } footer: {
-                    Text("Eén deel per regel. Eenheden: sec, min, km of m. Zone met z1 tot z5. Bij herhalingen is het eerste deel hard en het tweede herstel.")
+                    Text("Schrijf het op zoals je het zou zeggen. Rustig, tempo, hard en sprint worden hartslagzones, en je kunt ook zelf een zone noemen, zoals z2.")
                 }
 
                 Section("Voorbeelden") {
@@ -117,7 +115,7 @@ struct AddWorkoutView: View {
         guard let w = try? WorkoutText.workout(date: dayString, name: "x", text: text) else {
             return "\(Format.shortWeekday(date)) training"
         }
-        return WorkoutText.autoName(date: dayString, for: w)
+        return WorkoutText.autoName(date: dayString, for: w, text: text)
     }
 
     private var result: Result<PlannedWorkout, Error>? {

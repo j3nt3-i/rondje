@@ -1,13 +1,17 @@
 import Foundation
 
-// Short text format for typing a workout, one part per line (or split with ";"):
+// Reads workouts written the way runners write them, for example:
+//
+//   10 min inlopen, dan 5 keer 3 minuten hard met 2 minuten rust, uitlopen
+//   duurloop van een uur rustig
+//
+// and the short format the app writes itself:
 //
 //   warmup 10 min z2
 //   5x 3 min z4 / 2 min z2
 //   cooldown
 //
-// A line without a keyword or "Nx" is a single run, like "12 km z2".
-// Units: sec / s, min, km / k, m (meters). Zone: z1 to z5, optional.
+// Free text is first rewritten to the short format (normalize), then parsed.
 
 enum WorkoutText {
     struct ParseError: LocalizedError {
@@ -15,62 +19,62 @@ enum WorkoutText {
         var errorDescription: String? { message }
     }
 
+    // MARK: - One workout
+
     static func workout(date: String, name: String, text: String) throws -> PlannedWorkout {
         var warmup: StepSpec?
         var cooldown: StepSpec?
         var blocks: [BlockSpec] = []
 
-        let lines = text
-            .split(whereSeparator: { $0 == "\n" || $0 == ";" })
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
-
-        for line in lines {
-            let lower = line.lowercased()
-            if let rest = strip(lower, prefixes: ["warming-up", "warmingup", "warmup", "inlopen", "wu"]) {
+        for line in normalize(text) {
+            if let rest = strip(line, prefixes: ["warmup"]) {
                 let s = try step(rest, line: line)
                 warmup = StepSpec(goal: s.goal, zone: s.zone)
-            } else if let rest = strip(lower, prefixes: ["cooling-down", "coolingdown", "cooldown", "uitlopen", "cd"]) {
+            } else if let rest = strip(line, prefixes: ["cooldown"]) {
                 let s = try step(rest, line: line)
                 cooldown = StepSpec(goal: s.goal, zone: s.zone)
-            } else if let m = match(#"^(\d+)\s*[x×]\s*(.+)$"#, lower), let n = Int(m[1]) {
+            } else if let m = match(#"^(\d+)x\s*(.+)$"#, line), let n = Int(m[1]) {
                 guard (1...99).contains(n) else { throw ParseError(message: "\"\(line)\": herhaal 1 tot 99 keer.") }
-                let body = m[2].trimmingCharacters(in: CharacterSet(charactersIn: " ()"))
-                let parts = body.split(whereSeparator: { $0 == "/" || $0 == "+" }).map(String.init)
+                let parts = m[2].split(separator: "/").map(String.init)
+                    .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
                 var steps: [IntervalSpec] = []
                 for (i, part) in parts.enumerated() {
                     let s = try step(part, line: line)
                     steps.append(IntervalSpec(purpose: purpose(part, index: i), goal: s.goal, zone: s.zone))
                 }
+                guard !steps.isEmpty else { continue }
                 blocks.append(BlockSpec(iterations: n, steps: steps))
             } else {
-                let s = try step(lower, line: line)
-                if s.goal.type == .open && !lower.contains("open") {
-                    throw ParseError(message: "\"\(line)\": snap ik niet. Bedoel je iets als \"8 km z2\" of \"30 min z2\"?")
+                let s = try step(line, line: line)
+                if s.goal.type == .open && !line.contains("open") {
+                    throw ParseError(message: "\"\(line)\": hoe lang of hoe ver? Bijvoorbeeld 8 km of 30 min.")
                 }
                 blocks.append(BlockSpec(iterations: 1, steps: [IntervalSpec(purpose: .work, goal: s.goal, zone: s.zone)]))
             }
         }
 
         guard !blocks.isEmpty else {
-            throw ParseError(message: "Zet er minstens één loop of herhaling in, zoals \"8 km z2\" of \"5x 3 min z4 / 2 min z2\".")
+            throw ParseError(message: "Ik mis nog hoe lang of hoe ver je loopt. Bijvoorbeeld \"8 km rustig\" of \"5 keer 3 min hard met 2 min rust\".")
         }
         let workout = PlannedWorkout(date: date, name: name, warmup: warmup, blocks: blocks, cooldown: cooldown)
         try TrainingSchedule(name: "", defaultTime: "07:00", workouts: [workout]).validate()
         return workout
     }
 
-    /// Name like "Do 5x3 min" or "Zo 12 km", when none is given.
-    static func autoName(date: String, for w: PlannedWorkout) -> String {
+    /// Name like "Do 5x 3 min" or "Za wedstrijd 15 km", when none is given.
+    static func autoName(date: String, for w: PlannedWorkout, text: String = "") -> String {
         let weekday = ScheduleDates.day(date).map(Format.shortWeekday) ?? "Training"
         let blocks = w.blocks ?? []
+        let hint = hintWord(text)
         guard let main = blocks.first(where: { $0.iterations > 1 }) ?? blocks.first else { return weekday }
         let goal = main.steps[0].goal
-        if main.iterations == 1 { return "\(weekday) \(goal.type == .open ? "loop" : goal.label)" }
-        return "\(weekday) \(main.iterations)x \(goal.label)"
+        let summary = main.iterations == 1
+            ? (goal.type == .open ? "loop" : goal.label)
+            : "\(main.iterations)x \(goal.label)"
+        return [weekday, hint, summary].compactMap { $0 }.joined(separator: " ")
     }
 
-    /// The same format back, so a workout can be copied and edited.
+    /// The short format, so a workout can be copied and edited.
     static func text(for w: PlannedWorkout, zones: Bool = true, separator: String = "\n") -> String {
         var lines: [String] = []
         if let wu = w.warmup { lines.append("warmup " + step(wu.goal, wu.zone, zones)) }
@@ -84,75 +88,178 @@ enum WorkoutText {
         return lines.joined(separator: separator)
     }
 
+    // MARK: - Free text to short format
+
+    /// Rewrites a free description to one short-format line per part.
+    static func normalize(_ text: String) -> [String] {
+        var s = text.lowercased()
+        s = replace(s, #"(\d),(\d)"#, "$1.$2")
+        for (pattern, template) in wordRules { s = replace(s, pattern, template) }
+        s = hoursToMinutes(s)
+
+        let separators = #"\n|;|,|\.(?:\s|$)|\s+(?:en\s+)?(?:dan|daarna|vervolgens|gevolgd door|afsluiten met|eindigen met)\s+"#
+        var lines: [String] = []
+        for raw in split(s, separators) {
+            var seg = clean(raw)
+            seg = replace(seg, #"^(?:en|eerst|begin met|starten met|tot slot|als laatste|afsluitend)\s+"#, "")
+            if seg.isEmpty { continue }
+
+            let isRepeat = match(#"(\d+)\s*x\s*"#, seg) != nil
+            if let wu = removing(warmupWords, from: seg), !isRepeat {
+                lines.append("warmup " + wu)
+            } else if let cd = removing(cooldownWords, from: seg), !isRepeat {
+                lines.append("cooldown " + cd)
+            } else if let m = match(#"(\d+)\s*x\s*(.+)$"#, seg) {
+                let body = replace(m[2], #"\s+(?:met|en|plus|afgewisseld met)\s+"#, " / ")
+                lines.append("\(m[1])x \(body)")
+            } else if match(recoveryWords, seg) != nil, let last = lines.last, last.range(of: #"^\d+x "#, options: .regularExpression) != nil {
+                // "5x 3 min hard, 2 min rust ertussen": the rest belongs to the repeat.
+                lines[lines.count - 1] = last + " / " + seg
+            } else if seg.contains(where: \.isNumber) || seg.contains("open") {
+                lines.append(seg)
+            }
+            // Anything else ("lekker genieten!") is a note and is skipped.
+        }
+        return lines
+    }
+
+    private static let wordRules: [(String, String)] = [
+        (#"(\d+)\s*(?:keer|maal|×)"#, "$1x"),
+        (#"(\d+)\s*x(?=\d)"#, "$1x "),
+        (#"(\d+)\s+(?:versnellingen|sprintjes|sprints|strides|herhalingen|stukken|stukjes|blokken|intervallen|heuveltjes|heuvels|reps)\b\s*(?:van\s+)?"#, "$1x "),
+        (#"\banderhalf\s*uur(?:tje)?\b"#, "90 min"),
+        (#"\b(?:een\s+)?half\s*uur(?:tje)?\b"#, "30 min"),
+        (#"\b(?:een|1)\s+uur(?:tje)?\b"#, "60 min"),
+        (#"\b(?:een\s+)?kwartier(?:tje)?\b"#, "15 min"),
+        (#"\b(?:minuten|minuutjes?|minuut|mins|minutes?)\b"#, "min"),
+        (#"\b(?:seconden|seconde|secs|seconds?)\b"#, "sec"),
+        (#"\b(?:kilometers?|kms)\b"#, "km"),
+        (#"(\d)\s*(?:meters?|mtr)\b"#, "$1 m"),
+        (#"\bzone\s*(\d)"#, "z$1"),
+        (#"\b(?:(?:5|10|15|21)\s*k|halve\s+marathon|marathon|race|wedstrijd)[\s-]*tempo\b"#, "tempo"),
+        (#"\bin-?\s*en\s+uit\s*lopen\b([^,\n;]*)"#, "inlopen$1, uitlopen$1"),
+    ]
+
+    private static let warmupWords = #"\b(?:warming[- ]?up|warmup|inlopen|inloop|warm\s?lopen|opwarmen|warm|wu)\b"#
+    private static let cooldownWords = #"\b(?:cooling[- ]?down|cooldown|uitlopen|uitloop|uitdribbelen|cd|(?:terug\s+)?naar\s+huis)\b"#
+    private static let recoveryWords = #"\b(?:rust|pauze|dribbel\w*|wandel\w*|herstel\w*|jog\w*|ertussen|tussendoor)\b"#
+
+    private static func hoursToMinutes(_ s: String) -> String {
+        var s = s
+        while let m = match(#"(\d+(?:\.\d+)?)\s*uur\b"#, s), let h = Double(m[1]) {
+            s = s.replacingOccurrences(of: m[0], with: "\(Int((h * 60).rounded())) min")
+        }
+        return s
+    }
+
     // MARK: - Whole program
 
-    // Program format:
-    //
-    //   Devil's Trail 15 km
-    //   tijd 07:00
-    //
-    //   2026-11-26 Do 5x3 stevig
-    //   warmup 10 min z2
-    //   5x 3 min z4 / 2 min z2
-    //   cooldown
-    //
-    // A line starting with a date starts a new workout. Lines before the first
-    // date hold the event name (the last one counts) and an optional start time. "//" starts a note.
-    // JSON in the old format works too.
+    // A program is a list of workouts. A workout starts with a line holding
+    //   a date:      "2026-12-01 Di intervallen" or "1-12-2026: 8 km rustig"
+    //   or a day:    "Dinsdag: 10 min inlopen, 6x 2 min stevig, uitlopen"
+    // optionally under "Week 2" headers. Lines before the first workout hold
+    // the event name and maybe a start time. Days without distance or time
+    // (rest days) are skipped. JSON in the old format works too.
 
-    static func program(_ text: String) throws -> TrainingSchedule {
+    static func program(_ text: String, weekStart: Date = defaultWeekStart()) throws -> TrainingSchedule {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("{") {
             return try TrainingSchedule.decode(Data(trimmed.utf8))
         }
 
+        let cal = ScheduleDates.calendar
         var eventName: String?
-        var time = "07:00"
+        var time: String?
+        var week: Int?
+        var lastDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: weekStart)) ?? weekStart
         var workouts: [PlannedWorkout] = []
-        var current: (date: String, name: String, lines: [String])?
+        var current: (date: String, rest: String, lines: [String])?
 
         func finish() throws {
             guard let c = current else { return }
-            let label = c.name.isEmpty ? c.date : c.name
+            current = nil
+            let bodyText = c.lines.isEmpty ? c.rest : c.lines.joined(separator: "\n")
+            let name = c.lines.isEmpty ? "" : c.rest
+            guard bodyText.contains(where: \.isNumber) || bodyText.lowercased().contains("open") else {
+                return // rest day or a note
+            }
             do {
-                var w = try workout(date: c.date, name: c.name.isEmpty ? "x" : c.name, text: c.lines.joined(separator: "\n"))
-                if c.name.isEmpty { w.name = autoName(date: c.date, for: w) }
+                var w = try workout(date: c.date, name: name.isEmpty ? "x" : name, text: bodyText)
+                if name.isEmpty { w.name = autoName(date: c.date, for: w, text: bodyText) }
                 workouts.append(w)
             } catch {
-                throw ParseError(message: "\(label): \(error.localizedDescription)")
+                throw ParseError(message: "\(Format.shortDay(c.date)): \(error.localizedDescription)")
             }
-            current = nil
+        }
+
+        func start(on date: Date, rest: String) throws {
+            try finish()
+            lastDate = date
+            current = (isoFormatter.string(from: date), rest.trimmingCharacters(in: CharacterSet(charactersIn: " -:")), [])
+        }
+
+        func handle(_ line: String) throws {
+            if let m = match(#"^(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\b\s*[:,]?\s*(.*)$"#, line) {
+                guard let iso = isoDate(m[1]), let date = ScheduleDates.day(iso) else {
+                    throw ParseError(message: "\"\(m[1])\" is geen geldige datum.")
+                }
+                try start(on: date, rest: m[2])
+            } else if let m = match(#"^week\s*(\d+)\b\s*[:.\-]?\s*(.*)$"#, line), let n = Int(m[1]) {
+                try finish()
+                week = n
+                if !m[2].isEmpty { try handle(m[2]) }
+            } else if let (day, rest) = weekday(line) {
+                let date: Date
+                if let week {
+                    let offset = (week - 1) * 7 + day
+                    date = cal.date(byAdding: .day, value: offset, to: cal.startOfDay(for: weekStart)) ?? weekStart
+                } else {
+                    date = next(weekday: day, after: lastDate)
+                }
+                try start(on: date, rest: rest)
+            } else if current != nil {
+                current?.lines.append(line)
+            } else if let t = startTime(line) {
+                time = t
+                if !isOnlyTime(line), eventName == nil { eventName = eventTitle(line) }
+            } else if workouts.isEmpty {
+                // Chatbots often start with an intro, so the last line before the first workout wins.
+                eventName = eventTitle(line)
+            }
         }
 
         for raw in text.components(separatedBy: .newlines) {
             let line = clean(raw)
-            if line.isEmpty { continue }
-            if let m = match(#"^(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})\b\s*[:,]?\s*(.*)$"#, line) {
-                try finish()
-                guard let date = isoDate(m[1]) else {
-                    throw ParseError(message: "\"\(m[1])\" is geen geldige datum.")
-                }
-                current = (date, m[2].trimmingCharacters(in: CharacterSet(charactersIn: " -:")), [])
-            } else if current != nil {
-                current?.lines.append(line)
-            } else if let m = match(#"^(?:tijd|starttijd|time)\s*:?\s*(\d{1,2})[:.](\d{2})$"#, line) {
-                time = String(format: "%02d:%@", Int(m[1]) ?? 7, m[2])
-            } else if workouts.isEmpty {
-                // Chatbots often start with an intro line, so the last line before the first date wins.
-                eventName = line.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
-            }
+            if !line.isEmpty { try handle(line) }
         }
         try finish()
 
-        guard let eventName, !eventName.isEmpty else {
-            throw ParseError(message: "Zet de naam van het event op de eerste regel.")
-        }
         guard !workouts.isEmpty else {
-            throw ParseError(message: "Geen trainingen gevonden. Begin elke training met een datum, zoals 2026-12-01.")
+            throw ParseError(message: "Ik vond geen trainingen. Zet bij elke training een datum (1-12-2026) of een dag (dinsdag), met hoe lang of hoe ver.")
         }
-        let schedule = TrainingSchedule(name: eventName, defaultTime: time, workouts: workouts.sorted { $0.date < $1.date })
+        let name = (eventName ?? "").isEmpty ? "Mijn schema" : eventName!
+        let schedule = TrainingSchedule(name: name, defaultTime: time ?? "07:00",
+                                        workouts: dedupe(workouts).sorted { $0.date < $1.date })
         try schedule.validate()
         return schedule
+    }
+
+    /// True when dates come from day names, so the user should pick when week 1 starts.
+    static func usesDayNames(_ text: String) -> Bool {
+        text.components(separatedBy: .newlines).contains { line in
+            let l = clean(line)
+            return weekday(l) != nil || match(#"^week\s*\d+"#, l) != nil
+        }
+    }
+
+    /// Next Monday, or today when it is Monday.
+    static func defaultWeekStart(from now: Date = .now) -> Date {
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = .current
+        let today = cal.startOfDay(for: now)
+        let weekday = cal.component(.weekday, from: today) // 1 = Sunday, 2 = Monday
+        let days = (9 - weekday) % 7
+        return cal.date(byAdding: .day, value: days, to: today) ?? today
     }
 
     static func programText(for e: TrainingSchedule) -> String {
@@ -163,9 +270,9 @@ enum WorkoutText {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Prompt to give Claude (or any chatbot) so it answers in this format.
+    /// Prompt for Claude. The parser also reads free text, but this keeps it exact.
     static let claudePrompt = """
-    Maak een hardloopschema voor mij en geef het ALLEEN in dit tekstformaat, zonder uitleg ervoor of erna, zodat ik het in mijn app kan plakken:
+    Maak een hardloopschema voor mij. Geef het schema zonder uitleg, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
 
     Naam van het event
     tijd 07:00
@@ -178,23 +285,97 @@ enum WorkoutText {
     2026-12-03 Do duurloop
     10 km z2
 
-    Regels:
-    - Eerste regel: naam van het event (bijvoorbeeld de wedstrijd). Daarna "tijd HH:MM" voor de starttijd.
-    - Elke training begint met een datum (yyyy-mm-dd) en een korte naam.
-    - Daaronder één onderdeel per regel:
-      - "warmup <doel>" en "cooldown" of "cooldown <doel>"
-      - herhalingen: "<aantal>x <hard> / <herstel>"
-      - een gewone loop: "<doel>"
-    - Doel: "45 sec", "3 min", "8 km", "400 m" of "open".
-    - Hartslagzone optioneel met z1 tot z5 achter het doel.
-    - Geen andere tekst, geen opsommingstekens, geen markdown.
+    Elke training begint met een datum en een korte naam. Daaronder per regel een warmup, herhalingen ("5x hard / herstel"), een gewone loop of een cooldown. Doelen als 45 sec, 3 min, 8 km, 400 m of open. Hartslagzone z1 tot z5 erachter.
 
     Mijn doel:
     """
 
     // MARK: - Helpers
 
-    /// Strips markdown that chatbots like to add.
+    private static let isoFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
+        f.timeZone = .current
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static let dayNames: [(String, Int)] = [
+        ("maandag", 0), ("dinsdag", 1), ("woensdag", 2), ("donderdag", 3), ("vrijdag", 4), ("zaterdag", 5), ("zondag", 6),
+        ("ma", 0), ("di", 1), ("wo", 2), ("do", 3), ("vr", 4), ("za", 5), ("zo", 6),
+    ]
+
+    /// "dinsdag: 8 km" -> (1, "8 km"). Monday is 0.
+    private static func weekday(_ line: String) -> (Int, String)? {
+        let l = line.lowercased()
+        for (name, index) in dayNames where l.hasPrefix(name) {
+            let rest = l.dropFirst(name.count)
+            if name.count > 2 {
+                guard rest.first.map({ !$0.isLetter }) ?? true else { continue }
+            } else {
+                // Short names only with "di:", "di." or "di 8 km", so "zo rustig" stays text.
+                guard rest.isEmpty || rest.first == ":" || rest.first == "."
+                        || rest.range(of: #"^\s+\d"#, options: .regularExpression) != nil else { continue }
+            }
+            let text = String(line.dropFirst(name.count)).trimmingCharacters(in: CharacterSet(charactersIn: " .:-"))
+            return (index, text)
+        }
+        return nil
+    }
+
+    private static func next(weekday: Int, after date: Date) -> Date {
+        let cal = ScheduleDates.calendar
+        var d = cal.date(byAdding: .day, value: 1, to: date) ?? date
+        for _ in 0..<7 {
+            let w = (cal.component(.weekday, from: d) + 5) % 7 // Monday 0
+            if w == weekday { return d }
+            d = cal.date(byAdding: .day, value: 1, to: d) ?? d
+        }
+        return d
+    }
+
+    private static func startTime(_ line: String) -> String? {
+        let l = line.lowercased()
+        if let m = match(#"\b(?:tijd|starttijd|om|start|time)\s*:?\s*(\d{1,2})[:.](\d{2})\b"#, l),
+           let h = Int(m[1]), let mm = Int(m[2]), h < 24, mm < 60 {
+            return String(format: "%02d:%02d", h, mm)
+        }
+        if let m = match(#"\bhalf\s+(\d{1,2})\b"#, l), let h = Int(m[1]), (1...24).contains(h) {
+            return String(format: "%02d:30", h - 1)
+        }
+        if let m = match(#"\bom\s+(\d{1,2})\s*uur\b"#, l), let h = Int(m[1]), h < 24 {
+            return String(format: "%02d:00", h)
+        }
+        return nil
+    }
+
+    private static func isOnlyTime(_ line: String) -> Bool {
+        match(#"^(?:tijd|starttijd|start|time)\b"#, line.lowercased()) != nil
+    }
+
+    /// "Schema voor de Zevenheuvelenloop (15 km), we lopen om half 7" -> "Zevenheuvelenloop (15 km)"
+    private static func eventTitle(_ line: String) -> String {
+        var t = line
+        t = replace(t, #"^(?:mijn\s+)?(?:(?:trainings|hardloop|loop)?schema|plan|programma|training)\s+(?:voor|naar|richting)\s+(?:de|het)?\s*"#, "")
+        if let r = t.range(of: #",|\.\s|\s-\s|!|:"#, options: .regularExpression) { t = String(t[..<r.lowerBound]) }
+        t = t.trimmingCharacters(in: CharacterSet(charactersIn: " .:"))
+        return t.prefix(1).uppercased() + t.dropFirst()
+    }
+
+    private static func hintWord(_ text: String) -> String? {
+        if match(#"\b(?:wedstrijd|race)\b"#, text) != nil { return "wedstrijd" }
+        if match(#"\bheuvel"#, text) != nil { return "heuvels" }
+        if match(#"\b(?:duurloop|lange)\b"#, text) != nil { return "duurloop" }
+        return nil
+    }
+
+    private static func dedupe(_ workouts: [PlannedWorkout]) -> [PlannedWorkout] {
+        var seen = Set<String>()
+        return workouts.filter { seen.insert($0.id).inserted }
+    }
+
+    /// Strips markdown and notes that chatbots like to add.
     private static func clean(_ raw: String) -> String {
         var line = raw
         if let r = line.range(of: "//") { line = String(line[..<r.lowerBound]) }
@@ -230,11 +411,24 @@ enum WorkoutText {
         return nil
     }
 
+    private static func removing(_ pattern: String, from s: String) -> String? {
+        guard match(pattern, s) != nil else { return nil }
+        return replace(s, pattern, " ").trimmingCharacters(in: .whitespaces)
+    }
+
     private static func purpose(_ part: String, index: Int) -> IntervalSpec.Purpose {
-        let p = part.lowercased()
-        if ["herstel", "rust", "dribbel", "jog", "wandel"].contains(where: p.contains) { return .recovery }
-        if ["hard", "snel", "stevig"].contains(where: p.contains) { return .work }
+        if match(recoveryWords, part) != nil { return .recovery }
+        if match(#"\b(?:hard|snel|stevig|tempo|sprint\w*)\b"#, part) != nil { return .work }
         return index.isMultiple(of: 2) ? .work : .recovery
+    }
+
+    /// Zone from words when none is given: "rustig" 2, "tempo" 3, "hard" 4, "sprint" 5.
+    private static func inferredZone(_ s: String) -> Int? {
+        if match(#"\b(?:sprint\w*|maximaal|alles)\b"#, s) != nil { return 5 }
+        if match(#"\b(?:stevig|drempel\w*|hard|snel|threshold)\b"#, s) != nil { return 4 }
+        if match(#"\b(?:tempo|racetempo|duurtempo|matig)\b"#, s) != nil { return 3 }
+        if match(#"\b(?:rustig\w*|easy|duurloop|ontspannen|kalm|lsd)\b"#, s) != nil { return 2 }
+        return nil
     }
 
     private static func step(_ raw: String, line: String) throws -> (goal: GoalSpec, zone: Int?) {
@@ -250,21 +444,22 @@ enum WorkoutText {
             s = s.replacingOccurrences(of: m[0], with: " ")
         }
 
-        let unitPattern = #"(\d+(?:[.,]\d+)?)\s*(km|k|minuten|minuut|min|m|seconden|sec|s|'|")(?![a-z])"#
+        let unitPattern = #"(\d+(?:[.,]\d+)?)\s*(km|k|min|m|sec|s|'|")(?![a-z])"#
         if let m = match(unitPattern, s), let value = Double(m[1].replacingOccurrences(of: ",", with: ".")) {
             switch m[2] {
             case "km", "k": goal = GoalSpec(type: .distance, value: value, unit: "km")
             case "m": goal = GoalSpec(type: .distance, value: value / 1000, unit: "km")
-            case "minuten", "minuut", "min", "'": goal = GoalSpec(type: .time, value: value, unit: "min")
+            case "min", "'": goal = GoalSpec(type: .time, value: value, unit: "min")
             default: goal = GoalSpec(type: .time, value: value, unit: "sec")
             }
             s = s.replacingOccurrences(of: m[0], with: " ")
         }
 
-        // Words like "hard" or "rustig" are fine. Leftover numbers mean a typo.
+        // Words are fine. Leftover numbers mean something we could not read.
         if s.contains(where: \.isNumber) {
-            throw ParseError(message: "\"\(line)\": snap ik niet. Schrijf het als \"3 min\", \"45 sec\", \"5 km\" of \"400 m\".")
+            throw ParseError(message: "\"\(line.trimmingCharacters(in: .whitespaces))\": dit snap ik nog niet. Noem tijden en afstanden zoals 3 min, 45 sec, 5 km of 400 m.")
         }
+        if zone == nil { zone = inferredZone(s) }
         return (goal, zone)
     }
 
@@ -274,5 +469,23 @@ enum WorkoutText {
         return (0..<m.numberOfRanges).map { i in
             Range(m.range(at: i), in: s).map { String(s[$0]) } ?? ""
         }
+    }
+
+    private static func replace(_ s: String, _ pattern: String, _ template: String) -> String {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return s }
+        return re.stringByReplacingMatches(in: s, range: NSRange(s.startIndex..., in: s), withTemplate: template)
+    }
+
+    private static func split(_ s: String, _ pattern: String) -> [String] {
+        guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else { return [s] }
+        var parts: [String] = []
+        var start = s.startIndex
+        for m in re.matches(in: s, range: NSRange(s.startIndex..., in: s)) {
+            guard let r = Range(m.range, in: s) else { continue }
+            parts.append(String(s[start..<r.lowerBound]))
+            start = r.upperBound
+        }
+        parts.append(String(s[start...]))
+        return parts
     }
 }

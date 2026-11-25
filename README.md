@@ -39,11 +39,22 @@ The team ID (`YZV5DX4L6Y`, Personal Team) is set in `project.yml`. `00008150-001
 
 ## Adding workouts
 
-- **One workout**: open an event, tap `+`, pick a date and type the workout. A preview shows how it will look.
-- **A whole program**: on the home screen tap `+` > "Kopieer prompt voor Claude", paste it in Claude with your goal, copy the answer, then `+` > "Importeer schema" and paste. An event with the same name is replaced. JSON in the old `schedule.json` format works too.
-- **Edit with Claude**: in an event, `...` > "Kopieer als tekst" gives the whole schedule in the same format.
+Write workouts the way you would say them. The app rewrites the text to its own short format and shows a preview before anything is saved.
 
-Text format:
+- **One workout**: open an event, tap `+`, pick a date and describe it, for example `10 min inlopen, 5 keer 3 min hard met 2 min rust, uitlopen`.
+- **A whole schedule**: `+` > "Importeer schema" and paste it. Dates (`1-12-2026`, `2026-12-01`) or day names (`Dinsdag: ...`, under `Week 2`) both work; with day names you pick the Monday week 1 starts. Edit the event name and start time in the preview. An event with the same name is replaced.
+- **From Claude**: `+` > "Kopieer prompt voor Claude" gives a prompt that makes Claude answer in the exact short format. Free text from Claude works too.
+- **Edit with Claude**: in an event, `...` > "Kopieer als tekst" gives the whole schedule in the short format.
+
+What it understands:
+
+- Warm-up: `inlopen`, `warming-up`, `warm`. Cool-down: `uitlopen`, `cooling-down`, `naar huis`, `in- en uitlopen 2 km`.
+- Repeats: `5 keer`, `5x`, `5x3 min`, `6 versnellingen van 20 sec`, with the rest after `met`, `/` or in the next part (`2 min dribbelen ertussen`).
+- Units: sec, min, uur, kwartier, half uur, km, m, meter, 5k.
+- Zones: `z2` or `zone 2`, or from words: rustig/duurloop 2, tempo/racetempo 3, stevig/hard/drempel 4, sprint 5.
+- Lines without time or distance (rest days, notes, intros) are skipped. Markdown and bullets are ignored.
+
+The short format the app writes:
 
 ```
 Zevenheuvelenloop
@@ -53,17 +64,7 @@ tijd 07:00
 warmup 10 min z2
 5x 3 min z4 / 2 min z2
 cooldown
-
-2026-12-03 Do duurloop
-10 km z2
 ```
-
-- A line starting with a date (`2026-12-01` or `1-12-2026`) starts a workout; the rest of the line is its name (optional).
-- `warmup <goal>`, `cooldown` or `cooldown <goal>`.
-- Repeats: `<n>x <work> / <recovery>`. More parts are allowed; they alternate work and recovery, or use the words `hard` / `herstel`.
-- A plain line like `12 km z2` is a single run.
-- Goals: `45 sec`, `3 min`, `8 km`, `400 m`, `open`. Zone `z1` to `z5` is optional and adds a heart rate zone alert.
-- Markdown, bullets and an intro line from a chatbot are ignored. `//` starts a note.
 
 "Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. "Op je Watch" on the home screen lists what WorkoutKit reports as scheduled (only this app's workouts).
 
