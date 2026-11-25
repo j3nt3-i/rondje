@@ -23,6 +23,8 @@ struct NewGoalView: View {
     // Goal
     @State private var name = ""
     @State private var ownName = false
+    @State private var trailKm = ""
+    @State private var trailUp = ""
     @FocusState private var nameFocused: Bool
     @FocusState private var timeFocused: Bool
     @State private var hasDate = true
@@ -150,6 +152,12 @@ struct NewGoalView: View {
                     if !ownName { name = "" }
                     ownName = true
                     nameFocused = true
+                }
+            }
+            if isTrail {
+                HStack(spacing: 12) {
+                    numberField("Afstand", "15", unit: "km", text: $trailKm, keyboard: .decimalPad)
+                    numberField("Hoogtemeters", "400", unit: "m", text: $trailUp, keyboard: .numberPad)
                 }
             }
             if !trimmedName.isEmpty, store.event(named: trimmedName) != nil {
@@ -507,7 +515,42 @@ struct NewGoalView: View {
 
     // MARK: - Values
 
-    private var trimmedName: String { name.trimmingCharacters(in: .whitespaces) }
+    private var isTrail: Bool { !ownName && name == "Trailrun" }
+
+    /// "Trailrun" becomes "Trailrun 15 km" once the distance is filled in.
+    private var trimmedName: String {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        let km = trailKm.trimmingCharacters(in: .whitespaces)
+        return isTrail && !km.isEmpty ? "\(n) \(km) km" : n
+    }
+
+    /// "Het is een trailrun van 15 km met 400 hoogtemeters."
+    private var details: String {
+        guard isTrail else { return "" }
+        let km = trailKm.trimmingCharacters(in: .whitespaces), up = trailUp.trimmingCharacters(in: .whitespaces)
+        switch (km.isEmpty, up.isEmpty) {
+        case (false, false): return "Het is een trailrun van \(km) km met \(up) hoogtemeters."
+        case (false, true): return "Het is een trailrun van \(km) km."
+        case (true, false): return "Het is een trailrun met \(up) hoogtemeters."
+        default: return "Het is een trailrun."
+        }
+    }
+
+    private func numberField(_ label: String, _ placeholder: String, unit: String, text: Binding<String>, keyboard: UIKeyboardType) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.subheadline.bold()).foregroundStyle(Theme.accent)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                TextField(placeholder, text: text)
+                    .font(.title2.bold())
+                    .keyboardType(keyboard)
+                Text(unit).foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08), lineWidth: 1))
+    }
     private var nameOK: Bool { !trimmedName.isEmpty && store.event(named: trimmedName) == nil }
 
     private func dayString(_ d: Date) -> String {
@@ -535,7 +578,7 @@ struct NewGoalView: View {
 
     private var prompt: String {
         WorkoutText.claudePrompt(event: trimmedName, raceDate: hasDate ? bigDay : nil, perWeek: perWeek,
-                                 level: level, goal: aimText, wishes: wishText)
+                                 level: level, goal: aimText, wishes: wishText, details: details)
     }
 
     // MARK: - Reading the schedule
