@@ -70,6 +70,6 @@ cooldown
 
 ## Check that it worked
 
-- On the Watch: open Workout, scroll to Hardlopen buiten, tap the `...` button. The planned workouts are listed there. The one for today also appears at the top of the Workout app.
-- On the iPhone: the Fitness app shows the planned workouts in the Workout tab.
-- In the app: the "Op je Watch" list on the home screen, and a Watch icon next to each workout that landed.
+- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with today's workout. Tap `...` on it for the other workouts. The Watch only shows workouts from 7 days back to 7 days ahead; later ones appear by themselves. On a day without a workout the block may show nothing, so add a short test workout for today to check.
+- In the app: "Klaargezet voor je Watch" on the home screen lists what the iPhone handed to WorkoutKit, with the day each later workout becomes visible. The app cannot see the Watch itself.
+- If nothing shows up: keep the Watch unlocked and near the iPhone, check the Watch runs watchOS 10 or later, and check that scheduling is allowed in the Watch app on the iPhone (Workout settings).

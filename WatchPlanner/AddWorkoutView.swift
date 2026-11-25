@@ -2,6 +2,8 @@ import SwiftUI
 
 struct AddWorkoutView: View {
     let existingIDs: Set<String>
+    /// Names of workouts already planned per day ("2026-12-01"), to show dots and a hint.
+    var busyDays: [String: [String]] = [:]
     let onAdd: (PlannedWorkout, _ planNow: Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -27,8 +29,19 @@ struct AddWorkoutView: View {
         NavigationStack {
             Form {
                 Section {
-                    DatePicker("Datum", selection: $date, in: Calendar.current.startOfDay(for: .now)...,
-                               displayedComponents: .date)
+                    dayStrip
+                        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0))
+                    DatePicker("Andere datum", selection: $date, in: today..., displayedComponents: .date)
+                    if let names = busyDays[dayString], !names.isEmpty {
+                        Label("Deze dag staat al: \(names.joined(separator: ", "))", systemImage: "calendar.badge.exclamationmark")
+                            .font(.footnote)
+                            .foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("Wanneer · \(Format.day(dayString))")
+                }
+
+                Section {
                     TextField("Naam (mag leeg)", text: $name, prompt: Text(autoName))
                 }
 
@@ -103,6 +116,59 @@ struct AddWorkoutView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Day strip
+
+    private var today: Date { Calendar.current.startOfDay(for: .now) }
+
+    private var stripDays: [Date] {
+        (0..<28).compactMap { Calendar.current.date(byAdding: .day, value: $0, to: today) }
+    }
+
+    private var dayStrip: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(stripDays, id: \.self) { day in
+                        dayChip(day)
+                            .id(day)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+            .onChange(of: date) { _, new in
+                withAnimation { proxy.scrollTo(Calendar.current.startOfDay(for: new), anchor: .center) }
+            }
+        }
+    }
+
+    private func dayChip(_ day: Date) -> some View {
+        let cal = Calendar.current
+        let selected = cal.isDate(day, inSameDayAs: date)
+        let iso = String(format: "%04d-%02d-%02d", cal.component(.year, from: day),
+                         cal.component(.month, from: day), cal.component(.day, from: day))
+        let busy = !(busyDays[iso] ?? []).isEmpty
+        return Button {
+            date = day
+        } label: {
+            VStack(spacing: 3) {
+                Text(cal.isDateInToday(day) ? "Vandaag" : Format.shortWeekday(day))
+                    .font(.caption2.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text("\(cal.component(.day, from: day))")
+                    .font(.system(.title3, design: .rounded).bold())
+                Circle()
+                    .fill(busy ? (selected ? Color.black : Theme.accent) : .clear)
+                    .frame(width: 5, height: 5)
+            }
+            .foregroundStyle(selected ? .black : .primary)
+            .frame(width: 48, height: 66)
+            .background(selected ? Theme.accent : Color(white: 0.17), in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Format.day(iso) + (busy ? ", er staat al een training" : ""))
     }
 
     // MARK: - Parsing

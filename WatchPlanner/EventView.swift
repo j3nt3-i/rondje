@@ -74,7 +74,10 @@ struct EventView: View {
         }
         .safeAreaInset(edge: .bottom) { PlanButton() }
         .sheet(isPresented: $showAdd) {
-            AddWorkoutView(existingIDs: Set(event.workouts.map(\.id))) { workout, planNow in
+            AddWorkoutView(
+                existingIDs: Set(event.workouts.map(\.id)),
+                busyDays: Dictionary(grouping: store.events.flatMap(\.workouts), by: \.date).mapValues { $0.map(\.name) }
+            ) { workout, planNow in
                 add(workout, to: event, planNow: planNow)
             }
         }

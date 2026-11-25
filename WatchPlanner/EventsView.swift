@@ -48,7 +48,7 @@ struct EventsView: View {
 
                 Section {
                     if planner.watchItems.isEmpty {
-                        Text("Nog niets. Tik op Plan op Watch.")
+                        Text("Nog niets klaargezet. Tik op Plan op Watch.")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(planner.watchItems) { item in
@@ -66,9 +66,9 @@ struct EventsView: View {
                         .foregroundStyle(.red)
                     }
                 } header: {
-                    Text("Op je Watch")
+                    Text("Klaargezet voor je Watch")
                 } footer: {
-                    Text("Veeg naar links om een training van je Watch te halen. Hij blijft in je event staan, dus bij Plan op Watch komt hij terug. Je ziet hier alleen trainingen van deze app.")
+                    Text("Op je Watch: open Workout. Bovenaan staat een blok Rondje met de training van vandaag. Tik daar op ... voor de komende 7 dagen. Latere trainingen verschijnen vanzelf. Veeg naar links om er een weg te halen.")
                 }
             }
             .navigationTitle("Rondje")
@@ -158,7 +158,7 @@ struct EventsView: View {
                 Text([
                     "\(total) trainingen",
                     last.map { "t/m \($0)" },
-                    onWatch > 0 ? "\(onWatch) op Watch" : nil,
+                    onWatch > 0 ? "\(onWatch) klaargezet" : nil,
                 ].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -188,8 +188,22 @@ struct EventsView: View {
                 Text("Gedaan").font(.caption.bold()).foregroundStyle(Theme.accent)
             } else if item.workoutID == nil {
                 Text("Niet meer in schema").font(.caption).foregroundStyle(.orange)
+            } else if let visible = visibleFrom(item) {
+                Text("Vanaf \(visible)").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("Zichtbaar").font(.caption).foregroundStyle(Theme.accent)
             }
         }
+    }
+
+    /// The Watch shows the next 7 days, so later workouts show up from 7 days before.
+    private func visibleFrom(_ item: WatchItem) -> String? {
+        let cal = ScheduleDates.calendar
+        guard let date = item.date,
+              let limit = cal.date(byAdding: .day, value: 7, to: cal.startOfDay(for: .now)),
+              date > limit,
+              let from = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: date)) else { return nil }
+        return Format.shortDay(from).lowercased()
     }
 
     private func relativeDay(_ day: String) -> String {
