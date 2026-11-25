@@ -46,19 +46,6 @@ struct WatchItem: Identifiable {
 final class ScheduleService {
     private let scheduler = WorkoutScheduler.shared
 
-    /// Debug output, visible with `devicectl device process launch --console`.
-    private func log(_ text: String) {
-        print("[WK] \(text)")
-    }
-
-    private func describe(_ list: [ScheduledWorkoutPlan]) -> String {
-        list.map { s in
-            let name: String
-            if case .custom(let c) = s.plan.workout { name = c.displayName ?? "?" } else { name = "?" }
-            return "\(name) @\(s.date.year ?? 0)-\(s.date.month ?? 0)-\(s.date.day ?? 0) \(s.date.hour ?? -1):\(s.date.minute ?? -1) id=\(s.plan.id.uuidString.prefix(8))"
-        }.joined(separator: " | ")
-    }
-
     /// What is on the Watch right now (only workouts this app scheduled),
     /// matched against our events where possible.
     func watchItems(events: [TrainingSchedule]) async -> [WatchItem] {
@@ -116,24 +103,19 @@ final class ScheduleService {
     private func remove(plan: WorkoutPlan, at date: DateComponents) async {
         guard WorkoutScheduler.isSupported, await Self.isAuthorized() else { return }
         let clean = Self.clean(date)
-        log("remove id=\(plan.id.uuidString.prefix(8)) at \(clean) raw=\(date)")
-        log("before: \(describe(await scheduler.scheduledWorkouts))")
         await scheduler.remove(plan, at: clean)
 
         func isTarget(_ s: ScheduledWorkoutPlan) -> Bool {
             s.plan.id == plan.id && Self.clean(s.date) == clean
         }
         let remaining = await scheduler.scheduledWorkouts
-        log("after remove: \(describe(remaining))")
         guard remaining.contains(where: isTarget) else { return }
-        log("still there, clearing and re-adding \(remaining.count - 1)")
 
         let others = remaining.filter { !isTarget($0) }
         await scheduler.removeAllWorkouts()
         for other in others {
             await scheduler.schedule(other.plan, at: Self.clean(other.date))
         }
-        log("after fallback: \(describe(await scheduler.scheduledWorkouts))")
     }
 
     /// Only year, month, day, hour and minute.
@@ -164,8 +146,6 @@ final class ScheduleService {
 
         let ids = Set(plans.map(\.1.id))
         let current = await scheduler.scheduledWorkouts
-        log("add \(plans.count): \(plans.map { "\($0.0.name) \($0.2)" }.joined(separator: " | "))")
-        log("before: \(describe(current))")
         let others = current.filter { !ids.contains($0.plan.id) }.count
         let limit = WorkoutScheduler.maxAllowedScheduledWorkoutCount
         let room = max(0, limit - others)
@@ -177,9 +157,7 @@ final class ScheduleService {
             await scheduler.schedule(plan, at: when)
         }
 
-        let after = await scheduler.scheduledWorkouts
-        log("after add: \(describe(after))")
-        let landed = Set(after.map(\.plan.id))
+        let landed = Set(await scheduler.scheduledWorkouts.map(\.plan.id))
         let tried = Array(plans.prefix(room))
         let missing = tried.filter { !landed.contains($0.1.id) }.map(\.0.name)
         return ScheduleResult(
