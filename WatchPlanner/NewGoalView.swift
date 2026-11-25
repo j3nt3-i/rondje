@@ -132,7 +132,7 @@ struct NewGoalView: View {
                     .submitLabel(.next)
                     .onSubmit { if nameOK { goNext() } }
                     .padding(18)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+                    .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
             }
             FlowLayout(spacing: 10) {
@@ -212,7 +212,7 @@ struct NewGoalView: View {
                     .submitLabel(.next)
                     .onSubmit { goNext() }
                     .padding(16)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+                    .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
             }
 
@@ -446,7 +446,7 @@ struct NewGoalView: View {
     private func ownField(_ prompt: String, text: Binding<String>) -> some View {
         TextField(prompt, text: text, axis: .vertical)
             .padding(16)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+            .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
     }
 
     private func summaryRow(_ icon: String, _ text: String) -> some View {
@@ -589,7 +589,8 @@ struct GoalPill: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 15)
-            .background(isOn ? Theme.accent : Theme.card, in: Capsule())
+            .background(isOn ? Theme.accent : Theme.pill, in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(isOn ? 0 : 0.08), lineWidth: 1))
         }
         .buttonStyle(BounceStyle())
         .accessibilityAddTraits(isOn ? .isSelected : [])

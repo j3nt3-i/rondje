@@ -6,6 +6,8 @@ import UIKit
 enum Theme {
     static let accent = Color(red: 0.66, green: 1.0, blue: 0.0)   // Fitness lime
     static let card = Color(white: 0.11)
+    /// Choices and inputs in the wizard: clearly lighter than the black background.
+    static let pill = Color(white: 0.2)
     static let background = Color.black
 
     static func zone(_ zone: Int?) -> Color {
