@@ -66,7 +66,7 @@ warmup 10 min z2
 cooldown
 ```
 
-In an event, each workout shows "Op Watch", or "vanaf <day>" when it shows up on the Watch later (the Watch shows the coming 7 days). Each week has a button "Voeg week toe" that adds just that week next to what is there; once added, "Week toegevoegd" lets you add it again or take it off.
+In an event, each workout shows "Op Watch", or "vanaf <day>" when it shows up on the Watch later (the Watch shows the coming 7 days). Each week that is not fully on the Watch has a button "Voeg week toe". To take one workout off the Watch, swipe it left and tap "Van Watch".
 
 
 ## Check that it worked

@@ -68,6 +68,12 @@ struct EventView: View {
                             Button("Verwijder", systemImage: "trash", role: .destructive) {
                                 delete(w, from: event)
                             }
+                            if planner.onWatchIDs.contains(w.id) {
+                                Button("Van Watch", systemImage: "applewatch.slash") {
+                                    Task { await planner.remove([w], time: event.defaultTime, events: store.events) }
+                                }
+                                .tint(.gray)
+                            }
                         }
                     }
                 } header: {
@@ -123,20 +129,7 @@ struct EventView: View {
             Text(title)
             Spacer()
             if !upcoming.isEmpty {
-                if onWatch.count == upcoming.count {
-                    Menu {
-                        Button("Opnieuw toevoegen", systemImage: "arrow.clockwise") {
-                            Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) toegevoegd", events: store.events) }
-                        }
-                        Button("Haal week van Watch", systemImage: "applewatch.slash", role: .destructive) {
-                            Task { await planner.remove(upcoming, time: event.defaultTime, events: store.events) }
-                        }
-                    } label: {
-                        Label("Week toegevoegd", systemImage: "checkmark")
-                            .font(.caption.bold())
-                            .foregroundStyle(Theme.accent)
-                    }
-                } else {
+                if onWatch.count < upcoming.count {
                     Button {
                         Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) toegevoegd", events: store.events) }
                     } label: {
@@ -149,10 +142,6 @@ struct EventView: View {
                     }
                     .disabled(planner.isBusy)
                 }
-            } else {
-                Text("Geweest")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
         }
         .textCase(nil)
