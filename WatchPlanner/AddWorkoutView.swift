@@ -11,6 +11,8 @@ struct AddWorkoutView: View {
     @State private var name = ""
     @State private var text = ""
     @State private var planNow = true
+    @State private var reading: Result<(workout: PlannedWorkout, usedAI: Bool), Error>?
+    @State private var thinking = false
 
     private struct Example: Identifiable {
         let title: String
@@ -74,11 +76,17 @@ struct AddWorkoutView: View {
                 } header: {
                     Text("Beschrijf je training")
                 } footer: {
-                    Text("Schrijf het op zoals je het zou zeggen. Rustig, tempo, hard en sprint worden hartslagzones, en je kunt ook zelf een zone noemen, zoals z2.")
+                    Text("Schrijf het op zoals je het zou zeggen. Rustig, tempo, hard en sprint worden hartslagzones, en je kunt ook zelf een zone noemen, zoals z2." + (WorkoutAI.unavailableReason.map { " " + $0 } ?? ""))
                 }
 
-                if let result {
+                if result != nil || thinking {
                     Section("Zo wordt hij") {
+                        if thinking {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                Text("Apple Intelligence leest mee...").foregroundStyle(.secondary)
+                            }
+                        }
                         switch result {
                         case .success(let w):
                             HStack(spacing: 12) {
@@ -86,9 +94,18 @@ struct AddWorkoutView: View {
                                 Text(w.name).font(.headline)
                             }
                             ForEach(w.stepLines) { StepLineView(line: $0) }
+                            if case .success(let r) = reading, r.usedAI {
+                                Label("Gelezen met Apple Intelligence. Check even of het klopt.", systemImage: "sparkles")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
                         case .failure(let error):
-                            Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
-                                .foregroundStyle(.orange)
+                            if !thinking {
+                                Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        case nil:
+                            EmptyView()
                         }
                     }
                 }
@@ -112,9 +129,10 @@ struct AddWorkoutView: View {
                         }
                     }
                     .bold()
-                    .disabled(!isValid)
+                    .disabled(!isValid || thinking)
                 }
             }
+            .task(id: "\(text)|\(dayString)") { await read() }
         }
     }
 
@@ -179,24 +197,38 @@ struct AddWorkoutView: View {
     }
 
     private var autoName: String {
-        guard let w = try? WorkoutText.workout(date: dayString, name: "x", text: text) else {
-            return "\(Format.shortWeekday(date)) training"
-        }
-        return WorkoutText.autoName(date: dayString, for: w, text: text)
+        guard case .success(let r) = reading else { return "\(Format.shortWeekday(date)) training" }
+        return WorkoutText.autoName(date: dayString, for: r.workout, text: text)
     }
 
     private var result: Result<PlannedWorkout, Error>? {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        guard let reading else { return nil }
         let title = name.trimmingCharacters(in: .whitespaces).isEmpty ? autoName : name
-        do {
-            let w = try WorkoutText.workout(date: dayString, name: title, text: text)
+        return reading.flatMap { r in
+            var w = r.workout
+            w.name = title
             if existingIDs.contains(w.id) {
-                throw ScheduleError(message: "Er staat al een training met deze naam op die dag.")
+                return .failure(ScheduleError(message: "Er staat al een training met deze naam op die dag."))
             }
             return .success(w)
-        } catch {
-            return .failure(error)
         }
+    }
+
+    /// Rules right away; when they fail or doubt, Apple Intelligence after a short pause.
+    private func read() async {
+        thinking = false
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { reading = nil; return }
+        let rules = Result { try WorkoutText.read(date: dayString, name: "x", text: text) }
+        reading = rules.map { ($0.workout, false) }
+        if case .success(let r) = rules, !r.unsure { return }
+        guard WorkoutAI.isAvailable else { return }
+        try? await Task.sleep(for: .milliseconds(700))
+        guard !Task.isCancelled else { return }
+        thinking = true
+        let ai = try? await WorkoutAI.workout(date: dayString, name: "x", text: text)
+        guard !Task.isCancelled else { return }
+        thinking = false
+        if let ai, ai.usedAI { reading = .success((ai.workout, true)) }
     }
 
     private var isValid: Bool {

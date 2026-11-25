@@ -39,7 +39,7 @@ The team ID (`YZV5DX4L6Y`, Personal Team) is set in `project.yml`. `00008150-001
 
 ## Adding workouts
 
-Write workouts the way you would say them. The app rewrites the text to its own short format and shows a preview before anything is saved.
+Write workouts the way you would say them. The app reads the text with its own rules first (instant, offline). When the rules fail, or leave numbers they could not place, Apple Intelligence (on device, iOS 26+, when turned on) rewrites that part to the short format and the rules check it again. Workouts read this way are marked in the preview. Nothing is saved before you confirm.
 
 - **One workout**: open an event, tap `+`, pick a date and describe it, for example `10 min inlopen, 5 keer 3 min hard met 2 min rust, uitlopen`.
 - **A whole schedule**: `+` > "Importeer schema" and paste it. Dates (`1-12-2026`, `2026-12-01`) or day names (`Dinsdag: ...`, under `Week 2`) both work; with day names you pick the Monday week 1 starts. Edit the event name and start time in the preview. An event with the same name is replaced.
@@ -50,7 +50,7 @@ What it understands:
 
 - Warm-up: `inlopen`, `warming-up`, `warm`. Cool-down: `uitlopen`, `cooling-down`, `naar huis`, `in- en uitlopen 2 km`.
 - Repeats: `5 keer`, `5x`, `5x3 min`, `6 versnellingen van 20 sec`, with the rest after `met`, `/` or in the next part (`2 min dribbelen ertussen`). The count may also come after the steps (`3 min hard, 2 min zacht, herhaal 3x`, `en dat 4 keer`) or before them on its own line (`herhaal 5x:`).
-- Units: sec, min, uur, kwartier, half uur, km, m, meter, 5k.
+- Units: sec, min, uur, kwartier, half uur, km, m, meter, mijl/mile, 5k. Number words like zes, tweemaal, vierhonderd.
 - Zones: `z2` or `zone 2`, or from words: rustig/duurloop 2, tempo/racetempo 3, stevig/hard/drempel 4, sprint 5.
 - Lines without time or distance (rest days, notes, intros) are skipped. Markdown and bullets are ignored.
 

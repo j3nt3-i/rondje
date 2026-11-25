@@ -22,16 +22,29 @@ enum WorkoutText {
     // MARK: - One workout
 
     static func workout(date: String, name: String, text: String) throws -> PlannedWorkout {
+        try read(date: date, name: name, text: text).workout
+    }
+
+    /// Like workout, and says whether some numbers in the text were not used.
+    /// Then the result may be wrong, and Apple Intelligence gets a try.
+    static func read(date: String, name: String, text: String) throws -> (workout: PlannedWorkout, unsure: Bool) {
         var warmup: StepSpec?
         var cooldown: StepSpec?
         var blocks: [BlockSpec] = []
 
-        for line in normalize(text) {
+        let lines = normalize(text)
+        let numbersIn = numberCount(lines.joined(separator: " "))
+        let numbersInText = numberCount(normalizeNumbersOnly(text))
+        var ignored = numbersInText > numbersIn
+
+        for line in lines {
             if let rest = strip(line, prefixes: ["warmup"]) {
                 let s = try step(rest, line: line)
+                if s.ignored { ignored = true }
                 warmup = StepSpec(goal: s.goal, zone: s.zone)
             } else if let rest = strip(line, prefixes: ["cooldown"]) {
                 let s = try step(rest, line: line)
+                if s.ignored { ignored = true }
                 cooldown = StepSpec(goal: s.goal, zone: s.zone)
             } else if let m = match(#"^(\d+)x\s*(.+)$"#, line), let n = Int(m[1]) {
                 guard (1...99).contains(n) else { throw ParseError(message: "\"\(line)\": herhaal 1 tot 99 keer.") }
@@ -47,12 +60,14 @@ enum WorkoutText {
                 var steps: [IntervalSpec] = []
                 for (i, part) in parts.enumerated() {
                     let s = try step(part, line: line)
+                    if s.ignored { ignored = true }
                     steps.append(IntervalSpec(purpose: purpose(part, index: i), goal: s.goal, zone: s.zone))
                 }
                 guard !steps.isEmpty else { continue }
                 blocks.append(BlockSpec(iterations: n, steps: steps))
             } else {
                 let s = try step(line, line: line)
+                if s.ignored { ignored = true }
                 if s.goal.type == .open && !line.contains("open") {
                     throw ParseError(message: "\"\(line)\": hoe lang of hoe ver? Bijvoorbeeld 8 km of 30 min.")
                 }
@@ -65,7 +80,22 @@ enum WorkoutText {
         }
         let workout = PlannedWorkout(date: date, name: name, warmup: warmup, blocks: blocks, cooldown: cooldown)
         try TrainingSchedule(name: "", defaultTime: "07:00", workouts: [workout]).validate()
-        return workout
+        return (workout, ignored)
+    }
+
+    /// Number groups, not counting zones like "z2".
+    private static func numberCount(_ s: String) -> Int {
+        let withoutZones = replace(s, #"\bz[1-5]\b"#, " ")
+        return (try? NSRegularExpression(pattern: #"\d+(?:\.\d+)?"#))?
+            .numberOfMatches(in: withoutZones, range: NSRange(withoutZones.startIndex..., in: withoutZones)) ?? 0
+    }
+
+    /// The same number clean-up as normalize, without dropping anything.
+    private static func normalizeNumbersOnly(_ text: String) -> String {
+        var s = replace(text.lowercased(), #"(\d),(\d)"#, "$1.$2")
+        s = numbersFromWords(s)
+        for (pattern, template) in wordRules { s = replace(s, pattern, template) }
+        return milesToKilometers(hoursToMinutes(s))
     }
 
     /// Name like "Do 5x 3 min" or "Za wedstrijd 15 km", when none is given.
@@ -101,8 +131,10 @@ enum WorkoutText {
     static func normalize(_ text: String) -> [String] {
         var s = text.lowercased()
         s = replace(s, #"(\d),(\d)"#, "$1.$2")
+        s = numbersFromWords(s)
         for (pattern, template) in wordRules { s = replace(s, pattern, template) }
         s = hoursToMinutes(s)
+        s = milesToKilometers(s)
         s = replace(s, #"[,;](?=[^()\n]*\))"#, " /") // "5x (3 min, 2 min)" stays one repeat
 
         let separators = #"\n|;|,|\.(?:\s|$)|\s+(?:en\s+)?(?:dan|daarna|vervolgens|gevolgd door|afsluiten met|eindigen met)\s+"#
@@ -176,10 +208,30 @@ enum WorkoutText {
         let m = match(#"\b(?:herhaal|herhalen|repeat|repeats)\b\D*?(\d+)"#, seg) ?? match(#"(\d+)\s*x\b"#, seg)
         guard let m, let n = Int(m[1]), (1...99).contains(n) else { return nil }
         let rest = seg.replacingOccurrences(of: m[0], with: " ")
-        return rest.contains(where: \.isNumber) ? nil : n
+        if rest.contains(where: \.isNumber) || match(#"\b(?:min|sec|km|m)\b"#, rest) != nil { return nil }
+        return n
+    }
+
+    private static let numberWords: [(String, Int)] = [
+        ("twintig", 20), ("dertig", 30), ("veertig", 40), ("vijftig", 50), ("zestig", 60),
+        ("twaalf", 12), ("vijftien", 15), ("elf", 11), ("tien", 10), ("negen", 9), ("acht", 8),
+        ("zeven", 7), ("zes", 6), ("vijf", 5), ("vier", 4), ("drie", 3), ("twee", 2),
+    ]
+
+    /// "vierhonderd" -> "400", "tweemaal" -> "2x", "een minuut" -> "1 minuut", "zes keer" -> "6 keer".
+    private static func numbersFromWords(_ s: String) -> String {
+        var s = replace(s, #"\bhonderd\b"#, "100")
+        for (word, n) in numberWords {
+            s = replace(s, #"\b\#(word)honderd\b"#, "\(n * 100)")
+            s = replace(s, #"\b\#(word)maal\b"#, "\(n)x")
+            s = replace(s, #"\b\#(word)\b"#, "\(n)")
+        }
+        s = replace(s, #"\b(?:een|één|1)\s+(?=(?:minuut|minuutje|kilometer|km|seconde|halve\s+)\b)"#, "1 ")
+        return s
     }
 
     private static let wordRules: [(String, String)] = [
+        (#"(\d+(?:\.\d+)?)\s*(?:miles?|mijl)\b"#, "$1 mi"),
         (#"(\d+)\s*(?:keer|maal|×|times)\b"#, "$1x"),
         (#"(\d+)\s*x(?=\d)"#, "$1x "),
         (#"(\d+)\s+(?:versnellingen|sprintjes|sprints|strides|herhalingen|stukken|stukjes|blokken|intervallen|heuveltjes|heuvels|reps)\b\s*(?:van\s+)?"#, "$1x "),
@@ -203,8 +255,8 @@ enum WorkoutText {
 
     private static let goalPattern = #"\d+(?:\.\d+)?\s*(?:km|k|min|m|sec|s|'|")(?![a-z])"#
 
-    private static let warmupWords = #"\b(?:warming[- ]?up|warmup|inlopen|inloop|warm\s?lopen|opwarmen|warm|wu)\b"#
-    private static let cooldownWords = #"\b(?:cooling[- ]?down|cooldown|uitlopen|uitloop|uitdribbelen|cd|(?:terug\s+)?naar\s+huis)\b"#
+    private static let warmupWords = #"\b(?:warming[- ]?up|warm[- ]?up|inlopen|inloop|warm\s?lopen|opwarmen|warm|wu)\b"#
+    private static let cooldownWords = #"\b(?:cooling[- ]?down|cool[- ]?down|uitlopen|uitloop|uitdribbelen|cd|(?:terug\s+)?naar\s+huis)\b"#
     private static let recoveryWords = #"\b(?:rust|pauze|dribbel\w*|wandel\w*|herstel\w*|jog\w*|zacht\w*|langzaam|sloom|uitblazen|ertussen|tussendoor)\b"#
 
     private static func hoursToMinutes(_ s: String) -> String {
@@ -220,6 +272,14 @@ enum WorkoutText {
         return s
     }
 
+    private static func milesToKilometers(_ s: String) -> String {
+        var s = s
+        while let m = match(#"(\d+(?:\.\d+)?)\s*mi\b"#, s), let mi = Double(m[1]) {
+            s = s.replacingOccurrences(of: m[0], with: String(format: "%.1f km", mi * 1.609))
+        }
+        return s
+    }
+
     // MARK: - Whole program
 
     // A program is a list of workouts. A workout starts with a line holding
@@ -230,19 +290,33 @@ enum WorkoutText {
     // (rest days) are skipped. JSON in the old format works too.
 
     static func program(_ text: String, weekStart: Date = defaultWeekStart()) throws -> TrainingSchedule {
-        try programWithWarnings(text, weekStart: weekStart).schedule
+        let r = try programWithWarnings(text, weekStart: weekStart)
+        if r.schedule.workouts.isEmpty, let problem = r.doubts.compactMap(\.problem).first {
+            throw ParseError(message: problem)
+        }
+        return r.schedule
     }
 
-    /// Like program, but skips workouts it cannot read and returns why.
+    /// A workout in a program that the rules could not read, or read with numbers left over.
+    struct Doubt: Hashable {
+        let date: String
+        let name: String
+        let text: String
+        let problem: String?    // set when it was skipped
+        let workoutID: String?  // set when it was read but may be wrong
+        var key: String { date + "|" + text }
+    }
+
+    /// Like program, but keeps going past workouts it cannot read and lists them.
     static func programWithWarnings(_ text: String, weekStart: Date = defaultWeekStart()) throws
-        -> (schedule: TrainingSchedule, skipped: [String]) {
+        -> (schedule: TrainingSchedule, doubts: [Doubt]) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("{") {
             return (try TrainingSchedule.decode(Data(trimmed.utf8)), [])
         }
 
         let cal = ScheduleDates.calendar
-        var skipped: [String] = []
+        var doubts: [Doubt] = []
         var eventName: String?
         var time: String?
         var week: Int?
@@ -263,11 +337,14 @@ enum WorkoutText {
                 return // rest day or a note
             }
             do {
-                var w = try workout(date: c.date, name: name.isEmpty ? "x" : name, text: bodyText)
+                let r = try read(date: c.date, name: name.isEmpty ? "x" : name, text: bodyText)
+                var w = r.workout
                 if name.isEmpty { w.name = autoName(date: c.date, for: w, text: bodyText) }
                 workouts.append(w)
+                if r.unsure { doubts.append(Doubt(date: c.date, name: name, text: bodyText, problem: nil, workoutID: w.id)) }
             } catch {
-                skipped.append("\(Format.shortDay(c.date)): \(error.localizedDescription)")
+                doubts.append(Doubt(date: c.date, name: name, text: bodyText,
+                                    problem: "\(Format.shortDay(c.date)): \(error.localizedDescription)", workoutID: nil))
             }
         }
 
@@ -315,15 +392,14 @@ enum WorkoutText {
         }
         try finish()
 
-        guard !workouts.isEmpty else {
-            if let first = skipped.first { throw ParseError(message: first) }
+        guard !workouts.isEmpty || !doubts.isEmpty else {
             throw ParseError(message: "Ik vond geen trainingen. Zet bij elke training een datum (1-12-2026) of een dag (dinsdag), met hoe lang of hoe ver.")
         }
         let name = (eventName ?? "").isEmpty ? "Mijn schema" : eventName!
         let schedule = TrainingSchedule(name: name, defaultTime: time ?? "07:00",
                                         workouts: dedupe(workouts).sorted { $0.date < $1.date })
         try schedule.validate()
-        return (schedule, skipped)
+        return (schedule, doubts)
     }
 
     /// True when dates come from day names, so the user should pick when week 1 starts.
@@ -534,7 +610,7 @@ enum WorkoutText {
         return nil
     }
 
-    private static func step(_ raw: String, line: String) throws -> (goal: GoalSpec, zone: Int?) {
+    private static func step(_ raw: String, line: String) throws -> (goal: GoalSpec, zone: Int?, ignored: Bool) {
         var s = " " + raw.lowercased() + " "
         var zone: Int?
         var goal = GoalSpec(type: .open)
@@ -563,7 +639,7 @@ enum WorkoutText {
             throw ParseError(message: "\"\(line.trimmingCharacters(in: .whitespaces))\": hier mis ik een tijd of afstand, zoals 3 min, 45 sec, 5 km of 400 m.")
         }
         if zone == nil { zone = inferredZone(s) }
-        return (goal, zone)
+        return (goal, zone, s.contains(where: \.isNumber))
     }
 
     private static func match(_ pattern: String, _ s: String) -> [String]? {
