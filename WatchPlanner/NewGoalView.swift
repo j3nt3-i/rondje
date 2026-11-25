@@ -219,7 +219,7 @@ struct NewGoalView: View {
             if n < 120 { return "Nog \(n) dagen, mooi op tijd." }
             return "Nog \(n) dagen, lekker veel tijd om op te bouwen."
         case .method:
-            switch method { case .ai: return "Leuk! Dan stel ik je een paar vragen."; case .paste: return "Top."; case .later: return "Prima, dan doen we dat later." }
+            switch method { case .ai: return "Leuk! Ik stel je een paar vragen en maak daar een prompt van. Die kopieer je naar je eigen AI, zoals Claude of ChatGPT. Het antwoord plak je hier terug, en dan zet ik je trainingen klaar."; case .paste: return "Top."; case .later: return "Prima, dan doen we dat later." }
         case .perWeek: return "\(perWeek)x per week, mooi."
         case .level: return "Duidelijk."
         case .aim:
