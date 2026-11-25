@@ -43,6 +43,7 @@ Write workouts the way you would say them. The app reads the text with its own r
 
 - **One workout**: open an event, tap `+`, pick a date and describe it, for example `10 min inlopen, 5 keer 3 min hard met 2 min rust, uitlopen`.
 - **A new event**: tap `+`. Give it a name and optionally a race date (shown as a countdown; that day's workout gets the finish flag). The schedule field is optional: paste one, or leave it empty and add trainings later. "Maak een schema met AI" opens a screen that explains the steps and builds the prompt from the event name, race date and today's date, plus runs per week, your level, goal and wishes. It shows the prompt, copies it, can open Claude, and "Plak" puts Claude's answer straight into the new event. Change name or date later in the event: `...` > "Wijzig naam en datum". Workouts are scheduled at 07:00; the Watch groups them per day.
+- **Change a workout**: open it and tap "Wijzig". The form opens with the date, name and the workout in the short format. If the old version was on the Watch, it is replaced.
 - **A pasted schedule**: Dates (`1-12-2026`, `2026-12-01`) or day names (`Dinsdag: ...`, under `Week 2`) both work; with day names you pick the Monday week 1 starts. Event names must be unique.
 - **Edit with Claude**: in an event, `...` > "Kopieer als tekst" gives the whole schedule in the short format.
 

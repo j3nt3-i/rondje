@@ -4,6 +4,9 @@ struct AddWorkoutView: View {
     let existingIDs: Set<String>
     /// Names of workouts already planned per day ("2026-12-01"), to show dots and a hint.
     var busyDays: [String: [String]] = [:]
+    /// Set to change an existing workout instead of adding one.
+    var editing: PlannedWorkout? = nil
+    var planNowDefault = true
     let onAdd: (PlannedWorkout, _ planNow: Bool) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -13,6 +16,7 @@ struct AddWorkoutView: View {
     @State private var planNow = true
     @State private var reading: Result<(workout: PlannedWorkout, usedAI: Bool), Error>?
     @State private var thinking = false
+    @State private var filled = false
 
     private struct Example: Identifiable {
         let title: String
@@ -33,7 +37,7 @@ struct AddWorkoutView: View {
                 Section {
                     dayStrip
                         .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 0))
-                    DatePicker("Andere datum", selection: $date, in: today..., displayedComponents: .date)
+                    DatePicker("Andere datum", selection: $date, in: min(today, Calendar.current.startOfDay(for: date))..., displayedComponents: .date)
                     if let names = busyDays[dayString], !names.isEmpty {
                         Label("Deze dag staat al: \(names.joined(separator: ", "))", systemImage: "calendar.badge.exclamationmark")
                             .font(.footnote)
@@ -115,14 +119,14 @@ struct AddWorkoutView: View {
                         .tint(Theme.accent)
                 }
             }
-            .navigationTitle("Nieuwe training")
+            .navigationTitle(editing == nil ? "Nieuwe training" : "Training wijzigen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Annuleer") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Voeg toe") {
+                    Button(editing == nil ? "Voeg toe" : "Bewaar") {
                         if case .success(let w) = result {
                             onAdd(w, planNow)
                             dismiss()
@@ -133,7 +137,19 @@ struct AddWorkoutView: View {
                 }
             }
             .task(id: "\(text)|\(dayString)") { await read() }
+            .onAppear(perform: fill)
         }
+    }
+
+    /// When editing: start from the workout as it is, in the short text format.
+    private func fill() {
+        guard !filled else { return }
+        filled = true
+        planNow = planNowDefault
+        guard let w = editing else { return }
+        date = ScheduleDates.day(w.date) ?? date
+        name = w.name
+        text = WorkoutText.text(for: w)
     }
 
     // MARK: - Day strip

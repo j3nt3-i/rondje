@@ -7,7 +7,10 @@ struct WorkoutDetailView: View {
     let event: TrainingSchedule
 
     @Environment(Planner.self) private var planner
+    @Environment(ScheduleStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
     @State private var showPreview = false
+    @State private var showEdit = false
     @State private var copied = false
 
     var body: some View {
@@ -88,11 +91,47 @@ struct WorkoutDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            Button("Wijzig") { showEdit = true }
+        }
+        .sheet(isPresented: $showEdit) {
+            AddWorkoutView(
+                existingIDs: Set(event.workouts.map(\.id)).subtracting([workout.id]),
+                busyDays: Dictionary(grouping: store.events.flatMap(\.workouts).filter { $0.id != workout.id }, by: \.date)
+                    .mapValues { $0.map(\.name) },
+                editing: workout,
+                planNowDefault: planner.onWatchIDs.contains(workout.id)
+            ) { new, planNow in
+                save(new, planNow: planNow)
+            }
+        }
         .workoutPreview(WorkoutBuilder.plan(for: workout), isPresented: $showPreview)
         .onChange(of: showPreview) { wasShown, shown in
             // Apple's preview does not tell whether "add" was tapped. You open it to add,
             // so count it as added; "Weg" undoes it.
             if wasShown && !shown { planner.setCustom(workout.id, true) }
         }
+    }
+
+    private func save(_ new: PlannedWorkout, planNow: Bool) {
+        let old = workout
+        let wasOnWatch = planner.onWatchIDs.contains(old.id)
+        let wasCustom = planner.customIDs.contains(old.id)
+        do {
+            try store.replace(old, with: new, in: event.name)
+        } catch {
+            planner.message = Message(title: "Lukt niet", text: error.localizedDescription)
+            return
+        }
+        Task {
+            if wasOnWatch { await planner.remove([old], time: event.defaultTime, events: store.events) }
+            if planNow { await planner.put([new], time: event.defaultTime, title: "Gewijzigd", events: store.events) }
+            if wasCustom {
+                planner.setCustom(old.id, false)
+                planner.message = Message(title: "Gewijzigd",
+                    text: "De oude versie staat nog bij je eigen workouts op je Watch. Haal die daar weg en voeg de nieuwe toe met Voeg toe aan je workouts.")
+            }
+        }
+        dismiss() // back to the list, which shows the new version
     }
 }

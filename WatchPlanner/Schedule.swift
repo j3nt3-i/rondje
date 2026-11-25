@@ -285,6 +285,17 @@ final class ScheduleStore {
         try upsert(e)
     }
 
+    func replace(_ old: PlannedWorkout, with new: PlannedWorkout, in eventName: String) throws {
+        guard var e = event(named: eventName) else { return }
+        guard !e.workouts.contains(where: { $0.id == new.id && $0.id != old.id }) else {
+            throw ScheduleError(message: "Er staat al een training met deze naam op die dag.")
+        }
+        e.workouts.removeAll { $0.id == old.id }
+        e.workouts.append(new)
+        e.workouts.sort { $0.date < $1.date }
+        try upsert(e)
+    }
+
     func delete(_ workout: PlannedWorkout, from eventName: String) throws {
         guard var e = event(named: eventName) else { return }
         e.workouts.removeAll { $0.id == workout.id }
