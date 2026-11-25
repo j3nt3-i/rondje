@@ -17,15 +17,18 @@ struct ClaudePromptView: View {
     @AppStorage("prompt.level") private var level = ""
     @State private var goal = ""
     @State private var wishes = ""
-    @State private var copied = false
+    /// Where you are in the flow at the bottom: 0 copy the prompt, 1 open an AI app, 2 paste the answer.
+    @State private var flow = 0
+    @State private var openedApp = false
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     step(1, "Vertel hieronder iets over jezelf. Wij maken daar een prompt van.")
-                    step(2, "Kopieer de prompt en plak hem in Claude. Een andere AI kan ook.")
-                    step(3, "Kopieer het antwoord van Claude en tik hier onderaan op Plak. Je ziet meteen het schema.")
+                    step(2, "Kopieer de prompt en plak hem in je AI-app, zoals Claude, ChatGPT of Gemini.")
+                    step(3, "Kopieer het antwoord en tik hier op Plak. Je ziet meteen het schema.")
                 } header: {
                     Text("Zo werkt het")
                 }
@@ -54,6 +57,7 @@ struct ClaudePromptView: View {
                 }
             }
             .navigationTitle("Schema met AI")
+            .keyboardDoneButton()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -61,7 +65,11 @@ struct ClaudePromptView: View {
                 }
             }
             .safeAreaInset(edge: .bottom) { actions }
-            .onChange(of: prompt) { copied = false }
+            .onChange(of: prompt) { if flow > 0 { flow = 0 } }
+            .onChange(of: scenePhase) { _, phase in
+                // Back from the AI app: the next step is pasting the answer.
+                if phase == .active && openedApp { withAnimation { flow = 2 } }
+            }
         }
     }
 
@@ -82,26 +90,58 @@ struct ClaudePromptView: View {
         }
     }
 
+    private let apps: [(name: String, url: String)] = [
+        ("Claude", "https://claude.ai/new"),
+        ("ChatGPT", "https://chatgpt.com/"),
+        ("Gemini", "https://gemini.google.com/app"),
+    ]
+
     private var actions: some View {
-        VStack(spacing: 10) {
-            Button {
-                UIPasteboard.general.string = prompt
-                copied = true
-            } label: {
-                Label(copied ? "Gekopieerd" : "Kopieer prompt", systemImage: copied ? "checkmark" : "doc.on.doc")
-                    .font(.headline)
-                    .foregroundStyle(.black)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(Theme.accent, in: Capsule())
-            }
+        VStack(spacing: 12) {
             HStack {
-                Button("Open Claude", systemImage: "arrow.up.right") {
-                    if let url = URL(string: "https://claude.ai/new") { openURL(url) }
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
+                Text("Stap \(flow + 1) van 3")
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
                 Spacer()
+                if flow > 0 {
+                    Button("Terug") { withAnimation { flow -= 1 } }
+                        .font(.caption.bold())
+                }
+            }
+
+            switch flow {
+            case 0:
+                bigButton("Kopieer prompt", "doc.on.doc") {
+                    UIPasteboard.general.string = prompt
+                    withAnimation { flow = 1 }
+                }
+            case 1:
+                Text("Gekopieerd. Open je AI-app en plak de prompt.")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 10) {
+                    ForEach(apps, id: \.name) { app in
+                        Button {
+                            if let url = URL(string: app.url) {
+                                openedApp = true
+                                openURL(url)
+                            }
+                        } label: {
+                            Text(app.name)
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Theme.accent, in: Capsule())
+                        }
+                    }
+                }
+                Button("Ik heb het antwoord al") { withAnimation { flow = 2 } }
+                    .font(.footnote.bold())
+            default:
+                Text("Kopieer het antwoord van je AI-app en plak het hier.")
+                    .font(.subheadline)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 PasteButton(payloadType: String.self) { strings in
                     guard let answer = strings.first, !answer.isEmpty else { return }
                     Task { @MainActor in
@@ -111,13 +151,23 @@ struct ClaudePromptView: View {
                 }
                 .labelStyle(.titleAndIcon)
                 .buttonBorderShape(.capsule)
+                .controlSize(.large)
                 .tint(Theme.accent)
             }
-            Text("Plak zet het antwoord van Claude in je nieuwe doel.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
         .padding()
         .background(.bar)
     }
+
+    private func bigButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(.black)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Theme.accent, in: Capsule())
+        }
+    }
+
 }

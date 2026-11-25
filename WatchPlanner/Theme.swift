@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // Dark look in the style of the Fitness app.
 
@@ -257,5 +258,24 @@ struct WorkoutRow: View {
         // Added workouts for later need no label; only today's says it is on the Watch.
         guard onWatch == true, ScheduleDates.watchVisibleFrom(workout.date) == nil else { return nil }
         return ("Op Watch", Theme.accent)
+    }
+}
+
+// MARK: - Keyboard
+
+extension View {
+    /// A "Klaar" button above the keyboard, and scrolling down hides the keyboard too.
+    func keyboardDoneButton() -> some View {
+        self
+            .scrollDismissesKeyboard(.interactively)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Klaar") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                    }
+                    .bold()
+                }
+            }
     }
 }

@@ -120,6 +120,7 @@ struct AddWorkoutView: View {
                 }
             }
             .navigationTitle(editing == nil ? "Nieuwe training" : "Training wijzigen")
+            .keyboardDoneButton()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

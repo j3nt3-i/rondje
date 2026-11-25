@@ -52,6 +52,7 @@ struct NewEventView: View {
                 }
             }
             .navigationTitle("Nieuw doel")
+            .keyboardDoneButton()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -305,6 +306,7 @@ struct EditEventView: View {
                 }
             }
             .navigationTitle("Doel wijzigen")
+            .keyboardDoneButton()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
