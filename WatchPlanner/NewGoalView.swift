@@ -1,8 +1,9 @@
 import SwiftUI
 import UIKit
 
-// New goal as a wizard: one question per screen, big choices, a progress bar.
-// name -> big day -> how to make the schedule ->
+// New goal as a conversation: Rondje asks one thing at a time in chat bubbles, your
+// answers show up on the right (tap one to change it), and the answer controls sit at the bottom.
+// name -> (trail) -> big day -> how to make the schedule ->
 //   with AI: runs per week, level, aim, wishes -> copy prompt -> open AI app -> paste -> review
 //   paste:   paste or type -> review
 //   later:   review
@@ -19,6 +20,7 @@ struct NewGoalView: View {
 
     @State private var step: Step = .name
     @State private var method: Method = .ai
+    @State private var botTyping = true
 
     // Goal
     @State private var name = ""
@@ -33,6 +35,7 @@ struct NewGoalView: View {
     // AI questions (runs per week and level are remembered on this phone)
     @AppStorage("prompt.perWeek") private var perWeek = 3
     @AppStorage("prompt.level") private var level = ""
+    @State private var ownLevel = ""
     @State private var aims: Set<String> = []
     @State private var aimTime = ""
     @State private var ownAimOn = false
@@ -41,6 +44,7 @@ struct NewGoalView: View {
     @State private var wishes: Set<String> = []
     @State private var ownWish = ""
     @State private var openedApp = false
+    @State private var chosenApp: String?
 
     // Schedule text and how it reads
     @State private var text = ""
@@ -54,23 +58,48 @@ struct NewGoalView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    content
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(pastSteps, id: \.self) { s in
+                            botBubble(question(s))
+                            userBubble(answer(s)) { jump(to: s) }
+                        }
+                        if botTyping {
+                            typingBubble
+                        } else {
+                            botBubble(question(step))
+                            stepCard
+                        }
+                        Color.clear.frame(height: 1).id("bottom")
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
                 }
-                .padding(24)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .defaultScrollAnchor(.bottom)
+                .scrollDismissesKeyboard(.interactively)
+                .onChange(of: botTyping) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
-            .scrollDismissesKeyboard(.interactively)
-            .safeAreaInset(edge: .top) { progress }
-            .safeAreaInset(edge: .bottom) { bottomBar }
+            .safeAreaInset(edge: .bottom) {
+                if !botTyping {
+                    dock
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(.bar)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .navigationTitle("Nieuw doel")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    if step == .name {
-                        Button("Annuleer") { dismiss() }
-                    } else {
-                        Button("Terug", systemImage: "chevron.left") { goBack() }
+                    Button("Annuleer") { dismiss() }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    if !pastSteps.isEmpty {
+                        Button("Terug", systemImage: "arrow.uturn.backward") { goBack() }
                     }
                 }
                 ToolbarItemGroup(placement: .keyboard) {
@@ -79,6 +108,13 @@ struct NewGoalView: View {
                 }
             }
             .animation(.snappy, value: step)
+            .animation(.snappy, value: botTyping)
+            .task(id: step) {
+                // A short "typing" moment before each question.
+                botTyping = true
+                try? await Task.sleep(for: .milliseconds(450))
+                botTyping = false
+            }
             .task(id: "\(text)|\(weekStart)") { await read() }
             .onChange(of: scenePhase) { _, phase in
                 // Back from the AI app: the next step is pasting the answer.
@@ -98,6 +134,11 @@ struct NewGoalView: View {
         }
     }
 
+    private var pastSteps: [Step] {
+        guard let i = path.firstIndex(of: step) else { return [] }
+        return Array(path.prefix(i))
+    }
+
     private func goNext() {
         hideKeyboard()
         guard let i = path.firstIndex(of: step), i + 1 < path.count else { return }
@@ -110,160 +151,112 @@ struct NewGoalView: View {
         step = path[i - 1]
     }
 
-    private var progress: some View {
-        let i = path.firstIndex(of: step) ?? 0
-        return HStack(spacing: 5) {
-            ForEach(0..<path.count, id: \.self) { k in
-                Capsule().fill(k <= i ? Theme.accent : Color(white: 0.25)).frame(height: 5)
-            }
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 8)
-        .accessibilityElement()
-        .accessibilityLabel("Stap \(i + 1) van \(path.count)")
+    private func jump(to s: Step) {
+        hideKeyboard()
+        step = s
     }
 
-    // MARK: - Screens
+    // MARK: - The conversation
+
+    private func question(_ s: Step) -> String {
+        switch s {
+        case .name: return "Hoi! Waar train je voor?"
+        case .trail: return "Mooi, een trail. Hoe ver is hij, en hoeveel hoogtemeters?"
+        case .date: return "Wanneer is de grote dag?"
+        case .method: return "Hoe wil je je schema maken?"
+        case .perWeek: return "Hoe vaak per week wil je lopen?"
+        case .level: return "Wat lukt je nu? En hoe zwaar voelt dat?"
+        case .aim: return "Wat wil je bereiken? Kies er gerust meer."
+        case .wishes: return "Nog wensen voor je schema?"
+        case .copy: return "Top, je prompt is klaar. Kopieer hem, dan open je zo je AI-app."
+        case .openApp: return "Welke AI gebruik je? Plak de prompt daar en verstuur hem."
+        case .paste: return method == .ai ? "Plak hier het antwoord als je terug bent." : "Plak of typ hier je schema."
+        case .review:
+            return method == .later ? "Klaar om je doel te maken. Trainingen voeg je later toe." : "Gelukt! Dit zijn je trainingen."
+        }
+    }
+
+    private func answer(_ s: Step) -> String {
+        switch s {
+        case .name: return trimmedName
+        case .trail:
+            let km = trailKm.trimmingCharacters(in: .whitespaces), up = trailUp.trimmingCharacters(in: .whitespaces)
+            let parts = [km.isEmpty ? nil : "\(km) km", up.isEmpty ? nil : "\(up) hoogtemeters"].compactMap { $0 }
+            return parts.isEmpty ? "Weet ik nog niet" : parts.joined(separator: ", ")
+        case .date: return hasDate ? Format.day(dayString(bigDay)) : "Nog geen datum"
+        case .method:
+            switch method { case .ai: return "Met AI"; case .paste: return "Ik plak of typ het zelf"; case .later: return "Later" }
+        case .perWeek: return "\(perWeek)x per week"
+        case .level: return level
+        case .aim: return aimText
+        case .wishes: return wishText.isEmpty ? "Geen" : wishText
+        case .copy: return "Gekopieerd"
+        case .openApp: return chosenApp.map { "Ik gebruik \($0)" } ?? "Ik heb het antwoord al"
+        case .paste: return method == .ai ? "Geplakt" : "Hier is mijn schema"
+        case .review: return ""
+        }
+    }
+
+    private func botBubble(_ text: String) -> some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Image(systemName: "figure.run")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 28, height: 28)
+                .background(Theme.accent, in: Circle())
+                .accessibilityHidden(true)
+            Text(text)
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Theme.pill, in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 6, bottomTrailingRadius: 20, topTrailingRadius: 20))
+            Spacer(minLength: 40)
+        }
+        .transition(.opacity.combined(with: .move(edge: .bottom)))
+    }
+
+    private func userBubble(_ text: String, edit: @escaping () -> Void) -> some View {
+        HStack {
+            Spacer(minLength: 60)
+            Button(action: edit) {
+                Text(text)
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(Theme.accent, in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20))
+            }
+            .buttonStyle(BounceStyle())
+            .accessibilityHint("Tik om dit antwoord te veranderen")
+        }
+    }
+
+    private var typingBubble: some View {
+        HStack(alignment: .bottom, spacing: 8) {
+            Image(systemName: "figure.run")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.black)
+                .frame(width: 28, height: 28)
+                .background(Theme.accent, in: Circle())
+            TimelineView(.animation) { ctx in
+                let t = ctx.date.timeIntervalSinceReferenceDate
+                HStack(spacing: 5) {
+                    ForEach(0..<3) { i in
+                        Circle().fill(.secondary)
+                            .frame(width: 7, height: 7)
+                            .opacity(0.35 + 0.65 * max(0, sin(t * 6 - Double(i) * 0.8)))
+                    }
+                }
+            }
+            .padding(.horizontal, 16).padding(.vertical, 14)
+            .background(Theme.pill, in: Capsule())
+            Spacer()
+        }
+        .accessibilityLabel("Rondje typt")
+    }
+
+    // MARK: - Cards in the conversation
 
     @ViewBuilder
-    private var content: some View {
+    private var stepCard: some View {
         switch step {
-        case .name:
-            header("Waar train je voor?", "Kies een doel, of geef je eigen wedstrijd een naam.")
-            if ownName {
-                TextField("Naam van je doel, bijv. Devil's Trail", text: $name)
-                    .font(.title3.bold())
-                    .focused($nameFocused)
-                    .task { nameFocused = true }
-                    .submitLabel(.next)
-                    .onSubmit { if nameOK { goNext() } }
-                    .padding(18)
-                    .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
-            }
-            FlowLayout(spacing: 10) {
-                ForEach(goalPresets, id: \.title) { g in
-                    GoalPill(icon: g.icon, title: g.title, isOn: !ownName && name == g.title) {
-                        ownName = false
-                        name = g.title
-                        nameFocused = false
-                    }
-                }
-                GoalPill(icon: "plus", title: "Anders, namelijk...", isOn: ownName) {
-                    if !ownName { name = "" }
-                    ownName = true
-                    nameFocused = true
-                }
-            }
-            if !trimmedName.isEmpty, store.event(named: trimmedName) != nil {
-                Text("Er is al een doel met deze naam. Kies een andere naam.").foregroundStyle(.orange)
-            }
-
-        case .trail:
-            header("Hoe ziet je trail eruit?", "Afstand en hoogtemeters. Weet je het nog niet? Sla het over.")
-            HStack(spacing: 12) {
-                numberField("Afstand", "15", unit: "km", text: $trailKm, keyboard: .decimalPad)
-                numberField("Hoogtemeters", "400", unit: "m", text: $trailUp, keyboard: .numberPad)
-            }
-
-        case .date:
-            header("Wanneer is de grote dag?", "Rondje telt met je af. Geen vaste dag? Dat kan ook.")
-            DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .tint(Theme.accent)
-                .padding(8)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-
-        case .method:
-            header("Hoe maak je je schema?", "Je kunt het later altijd nog aanpassen.")
-            VStack(spacing: 12) {
-                RadioRow(icon: "sparkles", title: "Met AI",
-                         text: "Je beantwoordt een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema.",
-                         isOn: method == .ai) { method = .ai }
-                RadioRow(icon: "doc.on.clipboard", title: "Zelf plakken of typen",
-                         text: "Je hebt al een schema, van een trainer, website of AI.",
-                         isOn: method == .paste) { method = .paste }
-                RadioRow(icon: "clock", title: "Later",
-                         text: "Je maakt eerst het doel. Trainingen voeg je later toe.",
-                         isOn: method == .later) { method = .later }
-            }
-
-        case .perWeek:
-            header("Hoe vaak wil je lopen?", "Per week.")
-            FlowLayout(spacing: 10) {
-                ForEach(2...6, id: \.self) { n in
-                    GoalPill(title: "\(n)x", isOn: perWeek == n) { perWeek = n }
-                }
-            }
-
-        case .level:
-            header("Wat lukt je nu?", "Hoe ver je loopt, en hoe zwaar dat voelt. Zo begint je schema op het goede niveau.")
-            FlowLayout(spacing: 10) {
-                ForEach(levels, id: \.title) { l in
-                    GoalPill(title: l.title, isOn: level == levelValue(l)) { level = levelValue(l) }
-                }
-            }
-            if let chosen = levels.first(where: { level == levelValue($0) }) {
-                helper(chosen.sub)
-            }
-            ownField("Of vertel het zelf, bijv. 2x per week 6 km, rustig", text: Binding(
-                get: { levels.contains { level == levelValue($0) } ? "" : level },
-                set: { level = $0 }))
-
-        case .aim:
-            header("Wat wil je bereiken?", "Kies er een of meer.")
-            FlowLayout(spacing: 10) {
-                ForEach(aimChoices, id: \.self) { choice in
-                    GoalPill(title: choice, isOn: aims.contains(choice)) {
-                        if aims.contains(choice) { aims.remove(choice) } else { aims.insert(choice) }
-                        if !aims.contains("Een tijd neerzetten") { timeFocused = false }
-                    }
-                }
-                GoalPill(icon: "plus", title: "Anders, namelijk...", isOn: ownAimOn) {
-                    ownAimOn.toggle()
-                    if !ownAimOn { ownAim = ""; ownAimFocused = false }
-                }
-            }
-            if aims.contains("Een tijd neerzetten") {
-                HStack(spacing: 12) {
-                    Text("Tijd").font(.subheadline.bold()).foregroundStyle(Theme.accent)
-                    TextField("Bijv. 1:20 of onder de 50 min", text: $aimTime)
-                        .font(.title3.bold())
-                        .focused($timeFocused)
-                        .task { timeFocused = true }
-                        .submitLabel(.next)
-                        .onSubmit { goNext() }
-                }
-                    .padding(16)
-                    .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
-            }
-            if ownAimOn {
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("Anders").font(.subheadline.bold()).foregroundStyle(Theme.accent)
-                    TextField("Wat wil je nog meer bereiken?", text: $ownAim, axis: .vertical)
-                        .font(.title3.bold())
-                        .focused($ownAimFocused)
-                        .task { ownAimFocused = true }
-                }
-                    .padding(16)
-                    .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
-            }
-
-        case .wishes:
-            header("Nog wensen?", "Kies wat je wilt, of sla deze stap over.")
-            FlowLayout(spacing: 10) {
-                ForEach(["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"], id: \.self) { w in
-                    GoalPill(title: w, isOn: wishes.contains(w)) {
-                        if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
-                    }
-                }
-            }
-            ownField("Iets anders, bijv. nooit op woensdag", text: $ownWish)
-
         case .copy:
-            header("Je prompt is klaar", "Kopieer hem. In de volgende stap open je je AI-app.")
             VStack(alignment: .leading, spacing: 10) {
                 summaryRow("flag.checkered", trimmedName)
                 if hasDate { summaryRow("calendar", Format.day(dayString(bigDay))) }
@@ -271,194 +264,320 @@ struct NewGoalView: View {
                 if !level.isEmpty { summaryRow("chart.bar", level) }
                 if !aimText.isEmpty { summaryRow("target", aimText) }
                 if !wishText.isEmpty { summaryRow("star", wishText) }
+                DisclosureGroup("Bekijk de prompt") {
+                    Text(prompt).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled).padding(.top, 6)
+                }
+                .tint(Theme.accent)
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            DisclosureGroup("Bekijk de prompt") {
-                Text(prompt)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .textSelection(.enabled)
-                    .padding(.top, 8)
-            }
-            .tint(Theme.accent)
-
-        case .openApp:
-            bigIcon("arrow.up.forward.app.fill")
-            header("Open je AI-app", "De prompt staat op je klembord. Plak hem in je AI-app en verstuur.")
-            ForEach(apps, id: \.name) { app in
-                bigButton(app.name, "arrow.up.right") {
-                    if let url = URL(string: app.url) {
-                        openedApp = true
-                        openURL(url)
+            .padding(.leading, 36)
+        case .paste where method == .paste:
+            TextEditor(text: $text)
+                .font(.callout)
+                .frame(minHeight: 200)
+                .scrollContentBackground(.hidden)
+                .padding(10)
+                .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
+                .overlay(alignment: .topLeading) {
+                    if text.isEmpty {
+                        Text("Bijvoorbeeld:\nDi 1 dec: 10 min inlopen, 5 keer 3 min hard met 2 min rust, uitlopen")
+                            .font(.callout).foregroundStyle(.tertiary).padding(18).allowsHitTesting(false)
                     }
                 }
-            }
-
-        case .paste:
-            if method == .ai {
-                bigIcon("doc.on.clipboard.fill")
-                header("Plak het antwoord", "Kopieer het hele antwoord van je AI-app en plak het hier.")
-            } else {
-                header("Plak je schema", "Met datums, of met weken en dagen. Je kunt het ook typen.")
-            }
-            PasteButton(payloadType: String.self) { strings in
-                guard let s = strings.first, !s.isEmpty else { return }
-                Task { @MainActor in
-                    text = s
-                    step = .review
-                }
-            }
-            .labelStyle(.titleAndIcon)
-            .buttonBorderShape(.capsule)
-            .controlSize(.extraLarge)
-            .tint(Theme.accent)
-            .scaleEffect(1.4)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity)
-            if method == .paste {
-                TextEditor(text: $text)
-                    .font(.callout)
-                    .frame(minHeight: 220)
-                    .scrollContentBackground(.hidden)
-                    .padding(10)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            } else {
-                Button("Prompt nog een keer kopiëren") { UIPasteboard.general.string = prompt }
-                    .font(.subheadline.bold())
-                    .frame(maxWidth: .infinity)
-            }
-
         case .review:
-            reviewScreen
+            reviewCard
+        default:
+            EmptyView()
         }
     }
 
-    // MARK: - Review
-
     @ViewBuilder
-    private var reviewScreen: some View {
-        header(trimmedName, hasDate ? "De grote dag: \(Format.day(dayString(bigDay)))" : "Geen vaste dag")
-        if method == .later {
-            Text("Je maakt het doel nu. Trainingen voeg je later toe, met + in het doel.")
-                .foregroundStyle(.secondary)
-        } else {
-            if WorkoutText.usesDayNames(text) {
-                DatePicker("Week 1 begint op", selection: $weekStart, displayedComponents: .date)
-                    .padding(14)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            }
-            if isReading || thinking {
-                HStack(spacing: 10) {
-                    ProgressView()
-                    Text(isReading ? "Schema lezen..." : "Apple Intelligence leest mee...").foregroundStyle(.secondary)
+    private var reviewCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                KindIcon(kind: .race, size: 40)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(trimmedName).font(.headline)
+                    Text(hasDate ? "De grote dag: \(Format.day(dayString(bigDay)))" : "Geen vaste dag")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            switch isReading ? nil : result {
-            case .success(let e):
-                Text("\(e.workouts.count) trainingen").font(.headline)
-                if !aiWorkouts.isEmpty {
-                    Label("\(aiWorkouts.count) gelezen met Apple Intelligence. Check even of ze kloppen.", systemImage: "sparkles")
-                        .font(.footnote).foregroundStyle(.secondary)
+            if method != .later {
+                if WorkoutText.usesDayNames(text) {
+                    DatePicker("Week 1 begint op", selection: $weekStart, displayedComponents: .date).font(.subheadline)
                 }
-                ForEach(skipped, id: \.self) { problem in
-                    Label(problem, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange)
+                if isReading || thinking {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(isReading ? "Schema lezen..." : "Apple Intelligence leest mee...").foregroundStyle(.secondary)
+                    }
                 }
-                VStack(spacing: 0) {
+                switch isReading ? nil : result {
+                case .success(let e):
+                    Text("\(e.workouts.count) trainingen").font(.subheadline.bold())
+                    if !aiWorkouts.isEmpty {
+                        Label("\(aiWorkouts.count) gelezen met Apple Intelligence. Check even of ze kloppen.", systemImage: "sparkles")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    ForEach(skipped, id: \.self) { problem in
+                        Label(problem, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange)
+                    }
                     ForEach(e.workouts) { w in
                         WorkoutRow(workout: w, kind: WorkoutKind(w, scheduleName: trimmedName, raceDate: hasDate ? dayString(bigDay) : nil),
                                    isPast: ScheduleDates.isPast(w.date))
-                            .padding(.vertical, 10)
-                        Divider()
                     }
+                    Toggle("Meteen op Watch zetten", isOn: $planNow)
+                case .failure(let error) where !thinking:
+                    Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                    Button("Opnieuw plakken") { step = .paste }.bold()
+                default:
+                    EmptyView()
                 }
-                .padding(.horizontal, 16)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-                Toggle("Meteen op Watch zetten", isOn: $planNow)
-                    .padding(14)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            case .failure(let error) where !thinking:
-                Label(error.localizedDescription, systemImage: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Button("Opnieuw plakken") { step = .paste }.bold()
-            default:
-                EmptyView()
+            }
+            if let saveError {
+                Text("Opslaan lukt niet: \(saveError)").foregroundStyle(.orange)
             }
         }
-        if let saveError {
-            Text("Opslaan lukt niet: \(saveError)").foregroundStyle(.orange)
-        }
+        .padding(16)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+        .padding(.leading, 36)
     }
 
-    // MARK: - Bottom button
+    // MARK: - Answer controls at the bottom
 
     @ViewBuilder
-    private var bottomBar: some View {
+    private var dock: some View {
         switch step {
-        case .openApp, .paste:
-            if step == .openApp {
-                Button("Ik heb het antwoord al") { step = .paste }
-                    .font(.subheadline.bold())
-                    .padding()
-            } else {
-                EmptyView()
-            }
-        case .copy:
-            bar { bigButton("Kopieer prompt", "doc.on.doc") { UIPasteboard.general.string = prompt; goNext() } }
-        case .wishes:
-            bar { bigButton(wishes.isEmpty && ownWish.isEmpty ? "Overslaan" : "Volgende", nil) { goNext() } }
-        case .trail:
-            bar { bigButton(trailKm.isEmpty && trailUp.isEmpty ? "Overslaan" : "Volgende", nil) { goNext() } }
-        case .date:
-            bar {
-                VStack(spacing: 10) {
-                    bigButton("Volgende", nil) { hasDate = true; goNext() }
-                    Button("Nog geen datum") { hasDate = false; goNext() }.font(.subheadline.bold())
+        case .name:
+            VStack(alignment: .leading, spacing: 12) {
+                FlowLayout(spacing: 8) {
+                    ForEach(goalPresets, id: \.title) { g in
+                        GoalPill(icon: g.icon, title: g.title, isOn: !ownName && name == g.title) {
+                            ownName = false
+                            name = g.title
+                            if nameOK { goNext() }
+                        }
+                    }
+                    GoalPill(icon: "plus", title: "Anders, namelijk...", isOn: ownName) {
+                        if !ownName { name = "" }
+                        ownName = true
+                        nameFocused = true
+                    }
+                }
+                if ownName {
+                    inputRow("Naam van je doel, bijv. Devil's Trail", text: $name, focus: $nameFocused, enabled: nameOK) { goNext() }
+                }
+                if !trimmedName.isEmpty, store.event(named: trimmedName) != nil {
+                    Text("Er is al een doel met deze naam.").font(.footnote).foregroundStyle(.orange)
                 }
             }
-        case .review:
-            bar { bigButton("Maak doel", "checkmark") { create() }.disabled(!canCreate).opacity(canCreate ? 1 : 0.4) }
-        default:
-            bar { bigButton("Volgende", nil) { goNext() }.disabled(!canContinue).opacity(canContinue ? 1 : 0.4) }
-        }
-    }
 
-    private var canContinue: Bool {
-        switch step {
-        case .name: return nameOK
-        case .level: return !level.trimmingCharacters(in: .whitespaces).isEmpty
-        case .aim: return !aimText.isEmpty
-        default: return true
+        case .trail:
+            VStack(spacing: 12) {
+                HStack(spacing: 10) {
+                    numberField("Afstand", "15", unit: "km", text: $trailKm, keyboard: .decimalPad)
+                    numberField("Hoogtemeters", "400", unit: "m", text: $trailUp, keyboard: .numberPad)
+                }
+                HStack {
+                    GoalPill(title: "Weet ik nog niet", isOn: false) { trailKm = ""; trailUp = ""; goNext() }
+                    Spacer()
+                    sendButton(enabled: !(trailKm.isEmpty && trailUp.isEmpty)) { goNext() }
+                }
+            }
+
+        case .date:
+            VStack(spacing: 10) {
+                DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .tint(Theme.accent)
+                    .frame(maxHeight: 330)
+                HStack {
+                    GoalPill(title: "Nog geen datum", isOn: false) { hasDate = false; goNext() }
+                    Spacer()
+                    sendButton(enabled: true) { hasDate = true; goNext() }
+                }
+            }
+
+        case .method:
+            VStack(spacing: 8) {
+                RadioRow(icon: "sparkles", title: "Met AI",
+                         text: "Een paar vragen, en je eigen AI, zoals Claude of ChatGPT, maakt het schema.",
+                         isOn: false) { method = .ai; goNext() }
+                RadioRow(icon: "doc.on.clipboard", title: "Zelf plakken of typen",
+                         text: "Je hebt al een schema, van een trainer, website of AI.",
+                         isOn: false) { method = .paste; goNext() }
+                RadioRow(icon: "clock", title: "Later",
+                         text: "Eerst het doel, trainingen voeg je later toe.",
+                         isOn: false) { method = .later; goNext() }
+            }
+
+        case .perWeek:
+            FlowLayout(spacing: 8) {
+                ForEach(2...6, id: \.self) { n in
+                    GoalPill(title: "\(n)x", isOn: false) { perWeek = n; goNext() }
+                }
+            }
+
+        case .level:
+            VStack(alignment: .leading, spacing: 12) {
+                FlowLayout(spacing: 8) {
+                    ForEach(levels, id: \.title) { l in
+                        GoalPill(title: l.title, isOn: false) { level = levelValue(l); goNext() }
+                    }
+                }
+                inputRow("Of vertel het zelf", text: $ownLevel, focus: nil,
+                         enabled: !ownLevel.trimmingCharacters(in: .whitespaces).isEmpty) {
+                    level = ownLevel.trimmingCharacters(in: .whitespaces)
+                    goNext()
+                }
+            }
+
+        case .aim:
+            VStack(alignment: .leading, spacing: 12) {
+                FlowLayout(spacing: 8) {
+                    ForEach(aimChoices, id: \.self) { choice in
+                        GoalPill(title: choice, isOn: aims.contains(choice)) {
+                            if aims.contains(choice) { aims.remove(choice) } else { aims.insert(choice) }
+                        }
+                    }
+                    GoalPill(icon: "plus", title: "Anders", isOn: ownAimOn) {
+                        ownAimOn.toggle()
+                        if !ownAimOn { ownAim = "" }
+                    }
+                }
+                if aims.contains("Een tijd neerzetten") {
+                    labeledField("Tijd", "Bijv. 1:20 of onder de 50 min", text: $aimTime, focus: $timeFocused)
+                }
+                if ownAimOn {
+                    labeledField("Anders", "Wat wil je nog meer bereiken?", text: $ownAim, focus: $ownAimFocused)
+                }
+                HStack {
+                    Spacer()
+                    sendButton(enabled: !aimText.isEmpty) { goNext() }
+                }
+            }
+
+        case .wishes:
+            VStack(alignment: .leading, spacing: 12) {
+                FlowLayout(spacing: 8) {
+                    ForEach(["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"], id: \.self) { w in
+                        GoalPill(title: w, isOn: wishes.contains(w)) {
+                            if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
+                        }
+                    }
+                }
+                inputRow("Iets anders? Bijv. nooit op woensdag", text: $ownWish, focus: nil, enabled: true) { goNext() }
+            }
+
+        case .copy:
+            bigButton("Kopieer prompt", "doc.on.doc") {
+                UIPasteboard.general.string = prompt
+                goNext()
+            }
+
+        case .openApp:
+            VStack(spacing: 10) {
+                HStack(spacing: 8) {
+                    ForEach(apps, id: \.name) { app in
+                        Button {
+                            if let url = URL(string: app.url) {
+                                chosenApp = app.name
+                                openedApp = true
+                                openURL(url)
+                            }
+                        } label: {
+                            Label(app.name, systemImage: "arrow.up.right")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.black)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(Theme.accent, in: Capsule())
+                        }
+                        .buttonStyle(BounceStyle())
+                    }
+                }
+                Button("Ik heb het antwoord al") { chosenApp = nil; goNext() }
+                    .font(.subheadline.bold())
+            }
+
+        case .paste:
+            VStack(spacing: 10) {
+                PasteButton(payloadType: String.self) { strings in
+                    guard let s = strings.first, !s.isEmpty else { return }
+                    Task { @MainActor in
+                        text = s
+                        step = .review
+                    }
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonBorderShape(.capsule)
+                .controlSize(.extraLarge)
+                .tint(Theme.accent)
+                if method == .paste {
+                    bigButton("Klaar", "checkmark") { goNext() }
+                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
+                } else {
+                    Button("Prompt nog een keer kopiëren") { UIPasteboard.general.string = prompt }
+                        .font(.subheadline.bold())
+                }
+            }
+
+        case .review:
+            bigButton("Maak doel", "checkmark") { create() }
+                .disabled(!canCreate)
+                .opacity(canCreate ? 1 : 0.4)
         }
     }
 
     // MARK: - Pieces
 
-    private func header(_ title: String, _ text: String?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title).font(.system(.largeTitle, design: .rounded).bold())
-            if let text { Text(text).foregroundStyle(.secondary) }
+    /// A text field with a round send button, like a chat input.
+    private func inputRow(_ prompt: String, text: Binding<String>, focus: FocusState<Bool>.Binding?, enabled: Bool,
+                          send: @escaping () -> Void) -> some View {
+        HStack(spacing: 8) {
+            Group {
+                if let focus {
+                    TextField(prompt, text: text, axis: .vertical).focused(focus).task { focus.wrappedValue = true }
+                } else {
+                    TextField(prompt, text: text, axis: .vertical)
+                }
+            }
+            .lineLimit(1...4)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(Theme.pill, in: Capsule())
+            .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
+            .onSubmit { if enabled { send() } }
+            sendButton(enabled: enabled, action: send)
         }
     }
 
-    private func bigIcon(_ symbol: String) -> some View {
-        ZStack {
-            Circle().fill(Theme.accent.opacity(0.15)).frame(width: 120, height: 120)
-            Image(systemName: symbol).font(.system(size: 50, weight: .semibold)).foregroundStyle(Theme.accent)
+    private func labeledField(_ label: String, _ prompt: String, text: Binding<String>, focus: FocusState<Bool>.Binding) -> some View {
+        HStack(spacing: 12) {
+            Text(label).font(.subheadline.bold()).foregroundStyle(Theme.accent)
+            TextField(prompt, text: text).focused(focus).task { focus.wrappedValue = true }
         }
-        .frame(maxWidth: .infinity)
-        .accessibilityHidden(true)
+        .padding(.horizontal, 16).padding(.vertical, 12)
+        .background(Theme.pill, in: Capsule())
+        .overlay(Capsule().strokeBorder(Theme.accent, lineWidth: 1.5))
+    }
+
+    private func sendButton(enabled: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: "arrow.up")
+                .font(.headline)
+                .foregroundStyle(.black)
+                .frame(width: 44, height: 44)
+                .background(Theme.accent, in: Circle())
+        }
+        .disabled(!enabled)
+        .opacity(enabled ? 1 : 0.35)
+        .accessibilityLabel("Verstuur")
     }
 
     private func levelValue(_ l: (title: String, sub: String)) -> String {
         "\(l.title), \(l.sub.prefix(1).lowercased() + l.sub.dropFirst())"
-    }
-
-    private func helper(_ text: String) -> some View {
-        Text(text)
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-            .transition(.opacity)
     }
 
     private let levels: [(title: String, sub: String)] = [
@@ -480,18 +599,8 @@ struct NewGoalView: View {
         ("heart", "Fit blijven"),
     ]
 
-    private func ownField(_ prompt: String, text: Binding<String>) -> some View {
-        TextField(prompt, text: text, axis: .vertical)
-            .padding(16)
-            .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
-    }
-
     private func summaryRow(_ icon: String, _ text: String) -> some View {
         Label { Text(text) } icon: { Image(systemName: icon).foregroundStyle(Theme.accent) }
-    }
-
-    private func bar<C: View>(@ViewBuilder _ c: () -> C) -> some View {
-        c().padding(.horizontal, 24).padding(.vertical, 12).background(.bar)
     }
 
     private func bigButton(_ title: String, _ icon: String?, action: @escaping () -> Void) -> some View {
