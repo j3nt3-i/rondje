@@ -58,6 +58,10 @@ struct NewGoalView: View {
     @State private var corrections: [Correction] = []
     /// After changing an earlier answer, carry on at the question you were on.
     @State private var resumeAt: Step?
+    // What you just sent, shown right away while Rondje reads it.
+    @State private var pending: String?
+    // Rondje already showed it was thinking, so the next question comes without another pause.
+    @State private var skipPause = false
 
     private struct Correction: Identifiable {
         let id = UUID()
@@ -92,16 +96,21 @@ struct NewGoalView: View {
                             correctionBubbles(at: s)
                             userBubble(answer(s)) { jump(to: s) }
                         }
-                        if botTyping || understanding {
-                            typingBubble
-                        } else if streaming {
+                        if streaming {
                             botBubble(streamed)
+                        } else if botTyping && pending == nil {
+                            typingBubble
                         } else {
                             botBubble(question(step))
                             correctionBubbles(at: step)
-                            suggestions
-                                .transition(.opacity)
-                            stepCard
+                            if let pending {
+                                userBubble(pending) {}
+                                typingBubble
+                            } else {
+                                suggestions
+                                    .transition(.opacity)
+                                stepCard
+                            }
                         }
                         Color.clear.frame(height: 1).id("bottom")
                     }
@@ -111,6 +120,7 @@ struct NewGoalView: View {
                 .defaultScrollAnchor(.bottom)
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: botTyping) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: pending) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: streamed) { proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: streaming) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
@@ -141,10 +151,14 @@ struct NewGoalView: View {
             .task(id: step) {
                 // A short "typing" moment before each question.
                 // A moment of "thinking", then the question appears letter by letter.
-                botTyping = true
                 streamed = ""
-                try? await Task.sleep(for: .milliseconds(350))
-                guard !Task.isCancelled else { return }
+                if skipPause {
+                    skipPause = false
+                } else {
+                    botTyping = true
+                    try? await Task.sleep(for: .milliseconds(350))
+                    guard !Task.isCancelled else { return }
+                }
                 let full = question(step)
                 botTyping = false
                 streaming = true
@@ -159,6 +173,7 @@ struct NewGoalView: View {
                 composerFocused = typingStep
             }
             .task(id: "\(text)|\(weekStart)") { await read() }
+            .task { WorkoutAI.prewarm() }
             .onChange(of: scenePhase) { _, phase in
                 // Back from the AI app: the next step is pasting the answer.
                 if phase == .active && openedApp && step == .openApp { step = .paste }
@@ -471,13 +486,13 @@ struct NewGoalView: View {
                     TextField(placeholder, text: $composer, axis: .vertical)
                         .focused($composerFocused)
                         .submitLabel(.send)
-                        .onSubmit { if canSend && !botTyping && !streaming { Task { await send() } } }
+                        .onSubmit { if canSend && pending == nil && !botTyping && !streaming { Task { await send() } } }
                         .lineLimit(1...(step == .paste ? 8 : 4))
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .background(Theme.pill, in: RoundedRectangle(cornerRadius: 22))
                         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.08), lineWidth: 1))
                         .onChange(of: composer) { composerError = nil }
-                    sendButton(enabled: canSend && !understanding && !botTyping && !streaming) { Task { await send() } }
+                    sendButton(enabled: canSend && pending == nil && !botTyping && !streaming) { Task { await send() } }
                 }
             }
         }
@@ -578,17 +593,28 @@ struct NewGoalView: View {
     private func send() async {
         composerError = nil
         let t = typed
+        let raw = composer
+        // Your message moves into the chat at once; Rondje "types" while reading it.
+        pending = t.isEmpty ? nil : t
+        clearComposer()
+        defer { pending = nil }
         if step == .paste {
-            text = composer
-            clearComposer()
+            text = raw
             goNext()
             return
         }
-        if WorkoutAI.isAvailable, let field = NewGoalView.aiFields[step] {
+        // Plain answers ("4", "14 december", a goal from the list) need no Apple Intelligence.
+        if isPlainAnswer(t), await take(t) {
+            goNext()
+            return
+        }
+        if !t.isEmpty, WorkoutAI.isAvailable, let field = NewGoalView.aiFields[step] {
             let earlier = pastSteps.compactMap { s in NewGoalView.aiFields[s].map { ($0, answer(s)) } }
             let turn = await understand { await WorkoutAI.readTurn(t, question: ask(step), current: field, earlier: earlier) } ?? nil
             if let turn {
+                let before = step
                 await handle(turn, said: t)
+                skipPause = step != before
                 return
             }
         }
@@ -604,6 +630,16 @@ struct NewGoalView: View {
             return
         }
         if await take(t) { clearComposer(); goNext() } else { reply(t, explain(step)) }
+    }
+
+    /// Answers the rules read without doubt, so they go through without waiting.
+    private func isPlainAnswer(_ t: String) -> Bool {
+        switch step {
+        case .name: return goalPresets.contains { $0.title.lowercased() == t.lowercased() }
+        case .perWeek: return t.range(of: #"^[1-7]\s*(x|keer)?$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        case .date: return NewGoalView.date(from: t) != nil
+        default: return false
+        }
     }
 
     private static let aiFields: [Step: WorkoutAI.Field] = [

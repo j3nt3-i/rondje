@@ -164,6 +164,15 @@ enum WorkoutAI {
         return "Voor Apple Intelligence heb je iOS 26 nodig. Tot die tijd snap ik je wat minder goed."
     }
 
+    /// Loads the model ahead of time, so the first chat message does not wait for it.
+    static func prewarm() {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
+            LanguageModelSession().prewarm()
+        }
+        #endif
+    }
+
     /// A question in the goal chat, and what it asks for.
     enum Field: String {
         case goalName, raceDate, trail = "trailDetails", scheduleHelp, runsPerWeek, level = "currentLevel", aim, wishes
