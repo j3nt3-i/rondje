@@ -31,18 +31,42 @@ enum ScheduleServiceError: LocalizedError {
     }
 }
 
+/// One workout as WorkoutKit reports it on the Watch.
+struct WatchItem: Identifiable {
+    let id: String
+    let name: String
+    let date: Date?
+    let complete: Bool
+    let workoutID: String?   // matching PlannedWorkout.id, if we still have it
+}
+
 @MainActor
 final class ScheduleService {
     private let scheduler = WorkoutScheduler.shared
 
-    /// Workout ids (PlannedWorkout.id) that are on the Watch right now.
-    func scheduledIDs(in schedule: TrainingSchedule) async -> Set<String> {
-        guard WorkoutScheduler.isSupported,
-              await Self.isAuthorized() else { return [] }
-        let planIDs = Set(await scheduler.scheduledWorkouts.map(\.plan.id))
-        return Set(schedule.workouts
-            .filter { planIDs.contains(WorkoutBuilder.plan(for: $0).id) }
-            .map(\.id))
+    /// What is on the Watch right now (only workouts this app scheduled),
+    /// matched against our events where possible.
+    func watchItems(events: [TrainingSchedule]) async -> [WatchItem] {
+        guard WorkoutScheduler.isSupported, await Self.isAuthorized() else { return [] }
+        var byPlanID: [UUID: PlannedWorkout] = [:]
+        for w in events.flatMap(\.workouts) {
+            byPlanID[WorkoutBuilder.plan(for: w).id] = w
+        }
+        return await scheduler.scheduledWorkouts.map { item in
+            let known = byPlanID[item.plan.id]
+            var name = known?.name ?? "Training"
+            if case .custom(let custom) = item.plan.workout, let display = custom.displayName {
+                name = display
+            }
+            return WatchItem(
+                id: "\(item.plan.id)-\(item.date.year ?? 0)-\(item.date.month ?? 0)-\(item.date.day ?? 0)",
+                name: name,
+                date: ScheduleDates.calendar.date(from: item.date),
+                complete: item.complete,
+                workoutID: known?.id
+            )
+        }
+        .sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }
     }
 
     // WorkoutKit's AuthorizationState is not Sendable, so keep it off the main actor.
@@ -58,14 +82,22 @@ final class ScheduleService {
         return await scheduler.authorizationState == .authorized
     }
 
-    func planOnWatch(_ schedule: TrainingSchedule) async throws -> ScheduleResult {
-        guard WorkoutScheduler.isSupported else { throw ScheduleServiceError.notSupported }
+    /// Takes one workout off the Watch, for example after deleting it.
+    func remove(_ workout: PlannedWorkout, time: String) async {
+        guard WorkoutScheduler.isSupported, await Self.isAuthorized(),
+              let when = ScheduleDates.components(day: workout.date, time: time) else { return }
+        await scheduler.remove(WorkoutBuilder.plan(for: workout), at: when)
+    }
 
+    /// Replaces everything on the Watch with the upcoming workouts of all events.
+    func planOnWatch(_ events: [TrainingSchedule]) async throws -> ScheduleResult {
+        guard WorkoutScheduler.isSupported else { throw ScheduleServiceError.notSupported }
         guard await Self.authorize() else { throw ScheduleServiceError.notAuthorized }
 
-        let upcoming = schedule.workouts
-            .filter { !ScheduleDates.isPast($0.date) }
-            .sorted { $0.date < $1.date }
+        let all = events.flatMap { e in e.workouts.map { (workout: $0, time: e.defaultTime) } }
+        let upcoming = all
+            .filter { !ScheduleDates.isPast($0.workout.date) }
+            .sorted { $0.workout.date < $1.workout.date }
         guard !upcoming.isEmpty else { throw ScheduleServiceError.nothingToSchedule }
 
         let limit = WorkoutScheduler.maxAllowedScheduledWorkoutCount
@@ -73,8 +105,8 @@ final class ScheduleService {
 
         // Build everything first, so a bad date does not leave the Watch half empty.
         var plans: [(PlannedWorkout, WorkoutPlan, DateComponents)] = []
-        for w in toSchedule {
-            guard let when = ScheduleDates.components(day: w.date, time: schedule.defaultTime) else {
+        for (w, time) in toSchedule {
+            guard let when = ScheduleDates.components(day: w.date, time: time) else {
                 throw ScheduleServiceError.invalidDate(w.name)
             }
             plans.append((w, WorkoutBuilder.plan(for: w), when))
@@ -91,7 +123,7 @@ final class ScheduleService {
 
         return ScheduleResult(
             scheduled: plans.count - missing.count,
-            skippedPast: schedule.workouts.count - upcoming.count,
+            skippedPast: all.count - upcoming.count,
             overLimit: upcoming.count - toSchedule.count,
             limit: limit,
             missing: missing

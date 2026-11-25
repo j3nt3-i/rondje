@@ -109,6 +109,9 @@ extension TrainingSchedule {
         } catch {
             throw ScheduleError(message: "Geen geldige JSON.")
         }
+        guard !schedule.workouts.isEmpty else {
+            throw ScheduleError(message: "Er staan geen trainingen in het schema.")
+        }
         try schedule.validate()
         return schedule
     }
@@ -121,9 +124,6 @@ extension TrainingSchedule {
     func validate() throws {
         guard ScheduleDates.time(defaultTime) != nil else {
             throw ScheduleError(message: "defaultTime moet zoiets zijn als \"07:00\".")
-        }
-        guard !workouts.isEmpty else {
-            throw ScheduleError(message: "Er staan geen trainingen in het schema.")
         }
         for w in workouts {
             let label = "\"\(w.name)\""
@@ -188,6 +188,8 @@ extension GoalSpec {
     var label: String {
         switch type {
         case .open: return "open"
+        case .distance where (value ?? 0) < 1:
+            return "\(Int(((value ?? 0) * 1000).rounded())) m"
         default:
             let v = value ?? 0
             let number = v == v.rounded() ? String(Int(v)) : String(v)
@@ -198,42 +200,83 @@ extension GoalSpec {
 
 // MARK: - Store
 
-
-// Holds the current schedule. A pasted schedule is saved in Documents
-// and wins over the bundled default.
+// All events, saved as events.json in Documents. On first launch the
+// bundled schedule.json (or an older pasted schedule.json) becomes the first event.
 
 @MainActor
 @Observable
 final class ScheduleStore {
-    private(set) var schedule: TrainingSchedule?
+    private(set) var events: [TrainingSchedule] = []
     private(set) var loadError: String?
 
-    private var savedURL: URL {
-        URL.documentsDirectory.appending(path: "schedule.json")
-    }
+    private var eventsURL: URL { URL.documentsDirectory.appending(path: "events.json") }
+    private var oldScheduleURL: URL { URL.documentsDirectory.appending(path: "schedule.json") }
 
     init() { load() }
 
     func load() {
         do {
-            let url = FileManager.default.fileExists(atPath: savedURL.path())
-                ? savedURL
-                : Bundle.main.url(forResource: "schedule", withExtension: "json")
-            guard let url else { throw ScheduleError(message: "schedule.json ontbreekt in de app.") }
-            schedule = try TrainingSchedule.decode(Data(contentsOf: url))
+            if FileManager.default.fileExists(atPath: eventsURL.path()) {
+                events = try JSONDecoder().decode([TrainingSchedule].self, from: Data(contentsOf: eventsURL))
+            } else {
+                let url = FileManager.default.fileExists(atPath: oldScheduleURL.path())
+                    ? oldScheduleURL
+                    : Bundle.main.url(forResource: "schedule", withExtension: "json")
+                if let url { events = [try TrainingSchedule.decode(Data(contentsOf: url))] }
+            }
             loadError = nil
         } catch {
-            schedule = nil
-            loadError = error.localizedDescription
+            loadError = "Opgeslagen events konden niet geladen worden. \(error.localizedDescription)"
         }
     }
 
-    /// Validates the text and replaces the current schedule.
-    func replace(with text: String) throws {
-        let data = Data(text.utf8)
-        let new = try TrainingSchedule.decode(data)
-        try data.write(to: savedURL, options: .atomic)
-        schedule = new
+    func event(named name: String) -> TrainingSchedule? {
+        events.first { $0.name == name }
+    }
+
+    /// Adds an event, or replaces the one with the same name.
+    func upsert(_ event: TrainingSchedule) throws {
+        var all = events
+        if let i = all.firstIndex(where: { $0.name == event.name }) {
+            all[i] = event
+        } else {
+            all.append(event)
+        }
+        try save(all)
+    }
+
+    func createEvent(named raw: String) throws {
+        let name = raw.trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty else { throw ScheduleError(message: "Geef het event een naam.") }
+        guard event(named: name) == nil else { throw ScheduleError(message: "Er is al een event met die naam.") }
+        try upsert(TrainingSchedule(name: name, defaultTime: "07:00", workouts: []))
+    }
+
+    func deleteEvent(named name: String) throws {
+        try save(events.filter { $0.name != name })
+    }
+
+    func add(_ workout: PlannedWorkout, to eventName: String) throws {
+        guard var e = event(named: eventName) else { return }
+        guard !e.workouts.contains(where: { $0.id == workout.id }) else {
+            throw ScheduleError(message: "Er staat al een training met deze naam op die dag.")
+        }
+        e.workouts.append(workout)
+        e.workouts.sort { $0.date < $1.date }
+        try upsert(e)
+    }
+
+    func delete(_ workout: PlannedWorkout, from eventName: String) throws {
+        guard var e = event(named: eventName) else { return }
+        e.workouts.removeAll { $0.id == workout.id }
+        try upsert(e)
+    }
+
+    private func save(_ all: [TrainingSchedule]) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .withoutEscapingSlashes]
+        try encoder.encode(all).write(to: eventsURL, options: .atomic)
+        events = all
         loadError = nil
     }
 }
