@@ -114,11 +114,6 @@ final class ScheduleService {
         DateComponents(year: c.year, month: c.month, day: c.day, hour: c.hour ?? 0, minute: c.minute ?? 0)
     }
 
-    func removeAll() async {
-        guard WorkoutScheduler.isSupported, await Self.isAuthorized() else { return }
-        await scheduler.removeAllWorkouts()
-    }
-
     /// Adds these workouts to the Watch without touching the rest. Replaces them if they were there.
     func add(_ workouts: [PlannedWorkout], time: String) async throws -> ScheduleResult {
         guard WorkoutScheduler.isSupported else { throw ScheduleServiceError.notSupported }

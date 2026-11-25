@@ -1,12 +1,14 @@
 import Foundation
 import Observation
 
-// The JSON training schedule, as stored in schedule.json.
+// An event (usually a race) with its training schedule, stored as JSON.
 
 struct TrainingSchedule: Codable, Equatable {
     var name: String
     var defaultTime: String
     var workouts: [PlannedWorkout]
+    /// Race day as "yyyy-MM-dd", optional.
+    var raceDate: String? = nil
 }
 
 struct PlannedWorkout: Codable, Equatable, Identifiable {
@@ -134,6 +136,9 @@ extension TrainingSchedule {
         guard ScheduleDates.time(defaultTime) != nil else {
             throw ScheduleError(message: "defaultTime moet zoiets zijn als \"07:00\".")
         }
+        if let raceDate, ScheduleDates.day(raceDate) == nil {
+            throw ScheduleError(message: "raceDate moet yyyy-mm-dd zijn.")
+        }
         for w in workouts {
             let label = "\"\(w.name)\""
             guard ScheduleDates.day(w.date) != nil else {
@@ -254,11 +259,18 @@ final class ScheduleStore {
         try save(all)
     }
 
-    func createEvent(named raw: String) throws {
-        let name = raw.trimmingCharacters(in: .whitespaces)
+    /// Saves changes to an event, also when its name changed.
+    func update(_ oldName: String, to event: TrainingSchedule) throws {
+        let name = event.name.trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty else { throw ScheduleError(message: "Geef het event een naam.") }
-        guard event(named: name) == nil else { throw ScheduleError(message: "Er is al een event met die naam.") }
-        try upsert(TrainingSchedule(name: name, defaultTime: "07:00", workouts: []))
+        guard name == oldName || self.event(named: name) == nil else {
+            throw ScheduleError(message: "Er is al een event met die naam.")
+        }
+        var all = events
+        guard let i = all.firstIndex(where: { $0.name == oldName }) else { return }
+        all[i] = event
+        all[i].name = name
+        try save(all)
     }
 
     func deleteEvent(named name: String) throws {

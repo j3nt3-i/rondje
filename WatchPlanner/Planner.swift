@@ -1,6 +1,6 @@
 import SwiftUI
 
-// Shared Watch state for all screens: what is on the Watch, and the plan action.
+// Shared Watch state for all screens: what is on the Watch, and adding or removing workouts.
 
 @MainActor
 @Observable
@@ -9,7 +9,7 @@ final class Planner {
     var isBusy = false
     var message: Message?
 
-    fileprivate let service = ScheduleService()
+    private let service = ScheduleService()
 
     var onWatchIDs: Set<String> { Set(watchItems.compactMap(\.workoutID)) }
 
@@ -17,15 +17,6 @@ final class Planner {
         watchItems = await service.watchItems(events: events)
     }
 
-    func remove(_ workouts: [PlannedWorkout], time: String, events: [TrainingSchedule]) async {
-        for w in workouts where onWatchIDs.contains(w.id) {
-            await service.remove(w, time: time)
-        }
-        await refresh(events)
-    }
-}
-
-extension Planner {
     /// Puts these workouts on the Watch, next to what is already there.
     func put(_ workouts: [PlannedWorkout], time: String, title: String, events: [TrainingSchedule]) async {
         guard !isBusy else { return }
@@ -38,12 +29,14 @@ extension Planner {
             m.title = title
             message = m
         } catch {
-            message = Message(title: "Klaarzetten lukt niet", text: error.localizedDescription)
+            message = Message(title: "Toevoegen lukt niet", text: error.localizedDescription)
         }
     }
 
-    func clearWatch(events: [TrainingSchedule]) async {
-        await service.removeAll()
+    func remove(_ workouts: [PlannedWorkout], time: String, events: [TrainingSchedule]) async {
+        for w in workouts where onWatchIDs.contains(w.id) {
+            await service.remove(w, time: time)
+        }
         await refresh(events)
     }
 }
@@ -62,7 +55,7 @@ extension Message {
             lines.append("\(r.skippedPast) overgeslagen omdat ze al geweest zijn.")
         }
         if r.overLimit > 0 {
-            lines.append("Let op: je Watch kan er maar \(r.limit) tegelijk hebben. De eerste \(r.limit) staan erop, \(r.overLimit) nog niet. Plan later opnieuw.")
+            lines.append("Let op: je Watch kan er maar \(r.limit) tegelijk hebben. De eerste \(r.limit) staan erop, \(r.overLimit) nog niet. Voeg de rest later toe.")
         }
         if !r.missing.isEmpty {
             lines.append("Niet gelukt: \(r.missing.joined(separator: ", ")).")

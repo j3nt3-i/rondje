@@ -24,10 +24,10 @@ enum Theme {
 enum WorkoutKind {
     case easy, intervals, hills, race
 
-    init(_ w: PlannedWorkout, scheduleName: String?) {
+    init(_ w: PlannedWorkout, scheduleName: String?, raceDate: String? = nil) {
         let name = w.name.lowercased()
         let blocks = w.blocks ?? []
-        if w.name == scheduleName || name.contains("wedstrijd") {
+        if w.date == raceDate || w.name == scheduleName || name.contains("wedstrijd") {
             self = .race
         } else if name.contains("heuvel") {
             self = .hills
@@ -185,6 +185,18 @@ enum Format {
     /// "Do"
     static func shortWeekday(_ date: Date) -> String {
         capitalized(weekday.string(from: date).replacingOccurrences(of: ".", with: ""))
+    }
+
+    /// "nog 18 dagen", "morgen", "vandaag", "geweest"
+    static func countdown(to date: Date) -> String {
+        let cal = ScheduleDates.calendar
+        let days = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: date)).day ?? 0
+        switch days {
+        case ..<0: return "geweest"
+        case 0: return "vandaag!"
+        case 1: return "morgen!"
+        default: return "nog \(days) dagen"
+        }
     }
 
     /// "26 november"

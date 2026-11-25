@@ -11,7 +11,7 @@ struct WorkoutDetailView: View {
     @State private var copied = false
 
     var body: some View {
-        let kind = WorkoutKind(workout, scheduleName: event.name)
+        let kind = WorkoutKind(workout, scheduleName: event.name, raceDate: event.raceDate)
         List {
             Section {
                 VStack(alignment: .leading, spacing: 10) {

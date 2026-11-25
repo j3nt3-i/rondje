@@ -428,25 +428,34 @@ enum WorkoutText {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Prompt for Claude. The parser also reads free text, but this keeps it exact.
-    static let claudePrompt = """
-    Maak een hardloopschema voor mij. Geef het schema zonder uitleg, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
+    /// Prompt for Claude with what we know about the event.
+    static func claudePrompt(event: String, raceDate: Date?, startTime: String, today: Date = .now) -> String {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "nl_NL")
+        f.dateFormat = "EEEE d MMMM yyyy"
+        let name = event.trimmingCharacters(in: .whitespaces)
+        var goal = name.isEmpty ? "[mijn doel]" : name
+        if let raceDate { goal += ", op \(f.string(from: raceDate))" }
+        return """
+        Maak een hardloopschema voor mij. Mijn doel: \(goal). Vandaag is het \(f.string(from: today)). \
+        [Vertel hier hoe vaak je per week wilt lopen, je huidige niveau en eventuele wensen.]
 
-    Naam van het event
-    tijd 07:00
+        Geef het schema zonder uitleg, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
 
-    2026-12-01 Di intervallen
-    warmup 10 min z2
-    5x 3 min z4 / 2 min z2
-    cooldown
+        \(name.isEmpty ? "Naam van het event" : name)
+        tijd \(startTime)
 
-    2026-12-03 Do duurloop
-    10 km z2
+        2026-12-01 Di intervallen
+        warmup 10 min z2
+        5x 3 min z4 / 2 min z2
+        cooldown
 
-    Elke training begint met een datum en een korte naam. Daaronder per regel een warmup, herhalingen ("5x hard / herstel"), een gewone loop of een cooldown. Doelen als 45 sec, 3 min, 8 km, 400 m of open. Hartslagzone z1 tot z5 erachter.
+        2026-12-03 Do duurloop
+        10 km z2
 
-    Mijn doel:
-    """
+        Elke training begint met een datum en een korte naam. Daaronder per regel een warmup, herhalingen ("5x hard / herstel"), een gewone loop of een cooldown. Doelen als 45 sec, 3 min, 8 km, 400 m of open. Hartslagzone z1 tot z5 erachter.
+        """
+    }
 
     // MARK: - Helpers
 

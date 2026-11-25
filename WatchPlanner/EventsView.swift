@@ -1,17 +1,13 @@
 import SwiftUI
 import UIKit
 
-// Home: next workout, all events, and what is on the Watch.
+// Home: next workout and all events.
 
 struct EventsView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(Planner.self) private var planner
 
-    @State private var showImport = false
     @State private var showNewEvent = false
-    @State private var newEventName = ""
-    @State private var error: Message?
-    @State private var confirmClear = false
 
     var body: some View {
         NavigationStack {
@@ -33,7 +29,7 @@ struct EventsView: View {
 
                 Section("Events") {
                     if store.events.isEmpty {
-                        Text("Nog geen events. Tik op + om er een te maken of een schema te importeren.")
+                        Text("Nog geen events. Tik op + om er een te maken.")
                             .foregroundStyle(.secondary)
                     }
                     ForEach(store.events, id: \.name) { event in
@@ -49,48 +45,17 @@ struct EventsView: View {
             .navigationTitle("Rondje")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button("Importeer schema", systemImage: "square.and.arrow.down") { showImport = true }
-                        Button("Nieuw leeg event", systemImage: "flag") {
-                            newEventName = ""
-                            showNewEvent = true
-                        }
-                        Divider()
-                        Button("Kopieer prompt voor Claude", systemImage: "sparkles") {
-                            UIPasteboard.general.string = WorkoutText.claudePrompt
-                            error = Message(title: "Prompt gekopieerd",
-                                            text: "Plak hem in Claude, zet je doel eronder en plak het antwoord terug via Importeer schema.")
-                        }
-                        Divider()
-                        Button("Haal alles van je Watch", systemImage: "applewatch.slash", role: .destructive) {
-                            confirmClear = true
-                        }
+                    Button {
+                        showNewEvent = true
                     } label: {
                         Image(systemName: "plus.circle.fill")
                             .font(.title2)
                             .symbolRenderingMode(.hierarchical)
                     }
-                    .accessibilityLabel("Toevoegen")
+                    .accessibilityLabel("Nieuw event")
                 }
             }
-            .sheet(isPresented: $showImport) { ImportView() }
-            .confirmationDialog("Alles van je Watch halen?", isPresented: $confirmClear, titleVisibility: .visible) {
-                Button("Haal alles weg", role: .destructive) {
-                    Task { await planner.clearWatch(events: store.events) }
-                }
-            } message: {
-                Text("Je events blijven staan. Met de weekknoppen in een event zet je ze er weer op.")
-            }
-            .alert("Nieuw event", isPresented: $showNewEvent) {
-                TextField("Naam, bijvoorbeeld Zevenheuvelenloop", text: $newEventName)
-                Button("Annuleer", role: .cancel) {}
-                Button("Maak") {
-                    do { try store.createEvent(named: newEventName) } catch {
-                        self.error = Message(title: "Lukt niet", text: error.localizedDescription)
-                    }
-                }
-            }
-            .alert(item: $error) { m in Alert(title: Text(m.title), message: Text(m.text)) }
+            .sheet(isPresented: $showNewEvent) { NewEventView() }
         }
     }
 
@@ -104,7 +69,7 @@ struct EventsView: View {
     }
 
     private func nextCard(_ w: PlannedWorkout, event: TrainingSchedule) -> some View {
-        let kind = WorkoutKind(w, scheduleName: event.name)
+        let kind = WorkoutKind(w, scheduleName: event.name, raceDate: event.raceDate)
         return HStack(spacing: 14) {
             KindIcon(kind: kind, size: 56)
             VStack(alignment: .leading, spacing: 3) {
@@ -126,16 +91,20 @@ struct EventsView: View {
         let total = e.workouts.count
         let done = e.workouts.filter { ScheduleDates.isPast($0.date) }.count
         let onWatch = e.workouts.filter { planner.onWatchIDs.contains($0.id) }.count
-        let last = e.workouts.last.map { Format.shortDay($0.date) }
+        let race = e.raceDate.flatMap(ScheduleDates.day)
 
         return HStack(spacing: 14) {
             KindIcon(kind: .race)
             VStack(alignment: .leading, spacing: 4) {
                 Text(e.name).font(.headline)
+                if let race {
+                    Text("\(Format.shortDay(race)) · \(Format.countdown(to: race))")
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.accent)
+                }
                 Text([
                     "\(total) trainingen",
-                    last.map { "t/m \($0)" },
-                    onWatch > 0 ? "\(onWatch) toegevoegd" : nil,
+                    onWatch > 0 ? "\(onWatch) op Watch" : nil,
                 ].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption)
                 .foregroundStyle(.secondary)

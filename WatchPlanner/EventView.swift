@@ -4,13 +4,18 @@ import UIKit
 // One event: its workouts grouped by week.
 
 struct EventView: View {
-    let eventName: String
+    @State private var eventName: String
+
+    init(eventName: String) {
+        _eventName = State(initialValue: eventName)
+    }
 
     @Environment(ScheduleStore.self) private var store
     @Environment(Planner.self) private var planner
     @Environment(\.dismiss) private var dismiss
 
     @State private var showAdd = false
+    @State private var showEdit = false
     @State private var confirmDelete = false
     @State private var message: Message?
 
@@ -29,6 +34,19 @@ struct EventView: View {
 
     private func content(_ event: TrainingSchedule) -> some View {
         List {
+            if let raceDay = event.raceDate.flatMap(ScheduleDates.day) {
+                HStack(spacing: 12) {
+                    KindIcon(kind: .race)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Wedstrijd").font(.caption).foregroundStyle(.secondary)
+                        Text(Format.day(event.raceDate ?? "")).font(.headline)
+                    }
+                    Spacer()
+                    Text(Format.countdown(to: raceDay))
+                        .font(.system(.subheadline, design: .rounded).bold())
+                        .foregroundStyle(Theme.accent)
+                }
+            }
             if event.workouts.isEmpty {
                 Text("Nog geen trainingen. Tik op + om er een toe te voegen.")
                     .foregroundStyle(.secondary)
@@ -41,7 +59,7 @@ struct EventView: View {
                         } label: {
                             WorkoutRow(
                                 workout: w,
-                                kind: WorkoutKind(w, scheduleName: event.name),
+                                kind: WorkoutKind(w, scheduleName: event.name, raceDate: event.raceDate),
                                 isPast: ScheduleDates.isPast(w.date),
                                 onWatch: planner.onWatchIDs.contains(w.id)
                             )
@@ -60,6 +78,7 @@ struct EventView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
+                    Button("Wijzig naam en datum", systemImage: "pencil") { showEdit = true }
                     Button("Kopieer als tekst", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = WorkoutText.programText(for: event)
                         message = Message(title: "Gekopieerd",
@@ -73,6 +92,9 @@ struct EventView: View {
                 }
                 Button("Training toevoegen", systemImage: "plus") { showAdd = true }
             }
+        }
+        .sheet(isPresented: $showEdit) {
+            EditEventView(original: event) { newName in eventName = newName }
         }
         .sheet(isPresented: $showAdd) {
             AddWorkoutView(
