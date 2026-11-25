@@ -148,7 +148,7 @@ struct EmptyHome: View {
 
     private let pages = [
         Page(title: "Waar train je voor?", text: "Kies een doel, zoals een wedstrijd of je eerste 10\u{00A0}km. Rondje telt met je af."),
-        Page(title: "Zet er een schema in", text: "Laat Claude een schema maken en plak het, of typ je trainingen zoals je ze zegt."),
+        Page(title: "Zet er een schema in", text: "Laat je eigen AI, zoals Claude of ChatGPT, een schema maken. Of typ je trainingen zoals je ze zegt."),
         Page(title: "Elke ochtend op je pols", text: "De training van vandaag staat klaar in Workout op je Watch, met hartslagzones."),
     ]
 

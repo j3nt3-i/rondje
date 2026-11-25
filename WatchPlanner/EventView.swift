@@ -55,7 +55,7 @@ struct EventView: View {
                         .foregroundStyle(Theme.accent)
                     Text("Nog geen trainingen")
                         .font(.title3.bold())
-                    Text("Plak een schema, bijvoorbeeld van Claude, of voeg zelf een training toe.")
+                    Text("Plak een schema, bijvoorbeeld van je eigen AI, of voeg zelf een training toe.")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -127,7 +127,7 @@ struct EventView: View {
                     Button("Kopieer als tekst", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = WorkoutText.programText(for: event)
                         message = Message(title: "Gekopieerd",
-                                          text: "Het hele schema staat op je klembord. Handig om aan Claude te geven om het aan te passen.")
+                                          text: "Het hele schema staat op je klembord. Handig om aan je eigen AI te geven om het aan te passen.")
                     }
                     Button("Verwijder doel", systemImage: "trash", role: .destructive) {
                         confirmDelete = true

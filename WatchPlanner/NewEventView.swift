@@ -89,7 +89,7 @@ struct NewEventView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Maak een schema met AI")
                             .foregroundStyle(.primary)
-                        Text("Wij maken een prompt voor Claude. Jij plakt het antwoord terug.")
+                        Text("Laat je eigen AI, zoals Claude of ChatGPT, een schema maken. Jij plakt het antwoord terug.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
