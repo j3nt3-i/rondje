@@ -68,10 +68,10 @@ cooldown
 
 In an event, each workout shows its Watch status: "Op Watch", "Op Watch vanaf <day>" when it is more than 7 days away (the Watch only shows a week ahead), "Niet op Watch" or "Geweest". Each week has a button "Zet week op Watch" that adds just that week next to what is there; once planned, "Week op Watch" lets you plan it again or take it off.
 
-"Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. "Op je Watch" on the home screen lists what WorkoutKit reports as scheduled (only this app's workouts). Swipe one to take it off the Watch, or use "Haal alles van je Watch". The workouts stay in their events, so "Plan op Watch" puts them back.
+"Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. To clear the Watch: `+` > "Haal alles van je Watch". The workouts stay in their events, so "Plan op Watch" puts them back.
 
 ## Check that it worked
 
 - On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with today's workout. Tap `...` on it for the other workouts. The Watch only shows workouts from 7 days back to 7 days ahead; later ones appear by themselves. On a day without a workout the block may show nothing, so add a short test workout for today to check.
-- In the app: "Klaargezet voor je Watch" on the home screen lists what the iPhone handed to WorkoutKit, with the day each later workout becomes visible. The app cannot see the Watch itself.
+- In the app: each workout in an event shows "Op Watch" or "Op Watch vanaf <day>" once the iPhone handed it to WorkoutKit. The app cannot see the Watch itself.
 - If nothing shows up: keep the Watch unlocked and near the iPhone, check the Watch runs watchOS 10 or later, and check that scheduling is allowed in the Watch app on the iPhone (Workout settings).

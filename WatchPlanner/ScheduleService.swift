@@ -38,8 +38,6 @@ struct WatchItem: Identifiable {
     let date: Date?
     let complete: Bool
     let workoutID: String?   // matching PlannedWorkout.id, if we still have it
-    let plan: WorkoutPlan
-    let components: DateComponents
 }
 
 @MainActor
@@ -65,9 +63,7 @@ final class ScheduleService {
                 name: name,
                 date: ScheduleDates.calendar.date(from: item.date),
                 complete: item.complete,
-                workoutID: known?.id,
-                plan: item.plan,
-                components: item.date
+                workoutID: known?.id
             )
         }
         .sorted { ($0.date ?? .distantPast) < ($1.date ?? .distantPast) }
@@ -90,11 +86,6 @@ final class ScheduleService {
     func remove(_ workout: PlannedWorkout, time: String) async {
         guard let when = ScheduleDates.components(day: workout.date, time: time) else { return }
         await remove(plan: WorkoutBuilder.plan(for: workout), at: when)
-    }
-
-    /// Takes one item off the Watch, as listed by watchItems.
-    func remove(_ item: WatchItem) async {
-        await remove(plan: item.plan, at: item.components)
     }
 
     /// remove(_:at:) needs the exact plan and date it was scheduled with, and says

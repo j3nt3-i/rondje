@@ -39,11 +39,6 @@ final class Planner {
 }
 
 extension Planner {
-    func removeFromWatch(_ item: WatchItem, events: [TrainingSchedule]) async {
-        await service.remove(item)
-        await refresh(events)
-    }
-
     /// Puts one week on the Watch, next to what is already there.
     func planWeek(_ workouts: [PlannedWorkout], time: String, title: String, events: [TrainingSchedule]) async {
         guard !isBusy else { return }

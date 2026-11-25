@@ -45,30 +45,6 @@ struct EventsView: View {
                     }
                 }
 
-                Section {
-                    if planner.watchItems.isEmpty {
-                        Text("Nog niets klaargezet. Tik op Plan op Watch.")
-                            .foregroundStyle(.secondary)
-                    }
-                    ForEach(planner.watchItems) { item in
-                        watchRow(item)
-                            .swipeActions {
-                                Button("Haal weg", systemImage: "applewatch.slash", role: .destructive) {
-                                    Task { await planner.removeFromWatch(item, events: store.events) }
-                                }
-                            }
-                    }
-                    if !planner.watchItems.isEmpty {
-                        Button("Haal alles van je Watch", systemImage: "applewatch.slash", role: .destructive) {
-                            confirmClear = true
-                        }
-                        .foregroundStyle(.red)
-                    }
-                } header: {
-                    Text("Klaargezet voor je Watch")
-                } footer: {
-                    Text("Op je Watch: open Workout. Bovenaan staat een blok Rondje met de training van vandaag. Tik daar op ... voor de komende 7 dagen. Latere trainingen verschijnen vanzelf. Veeg naar links om er een weg te halen.")
-                }
             }
             .navigationTitle("Rondje")
             .toolbar {
@@ -84,6 +60,10 @@ struct EventsView: View {
                             UIPasteboard.general.string = WorkoutText.claudePrompt
                             error = Message(title: "Prompt gekopieerd",
                                             text: "Plak hem in Claude, zet je doel eronder en plak het antwoord terug via Importeer schema.")
+                        }
+                        Divider()
+                        Button("Haal alles van je Watch", systemImage: "applewatch.slash", role: .destructive) {
+                            confirmClear = true
                         }
                     } label: {
                         Image(systemName: "plus.circle.fill")
@@ -167,41 +147,6 @@ struct EventsView: View {
             }
         }
         .padding(.vertical, 4)
-    }
-
-    private func watchRow(_ item: WatchItem) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.complete ? "checkmark.circle.fill" : "applewatch")
-                .font(.title3)
-                .foregroundStyle(item.complete ? Theme.accent : .secondary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.name)
-                Text(item.date.map(Format.shortDay) ?? "")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Spacer()
-            if item.complete {
-                Text("Gedaan").font(.caption.bold()).foregroundStyle(Theme.accent)
-            } else if item.workoutID == nil {
-                Text("Niet meer in schema").font(.caption).foregroundStyle(.orange)
-            } else if let visible = visibleFrom(item) {
-                Text("Vanaf \(visible)").font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("Zichtbaar").font(.caption).foregroundStyle(Theme.accent)
-            }
-        }
-    }
-
-    /// The Watch shows the next 7 days, so later workouts show up from 7 days before.
-    private func visibleFrom(_ item: WatchItem) -> String? {
-        let cal = ScheduleDates.calendar
-        guard let date = item.date,
-              let limit = cal.date(byAdding: .day, value: 7, to: cal.startOfDay(for: .now)),
-              date > limit,
-              let from = cal.date(byAdding: .day, value: -7, to: cal.startOfDay(for: date)) else { return nil }
-        return Format.shortDay(from).lowercased()
     }
 
     private func relativeDay(_ day: String) -> String {
