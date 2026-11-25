@@ -21,7 +21,7 @@ struct WorkoutDetailView: View {
                     KindIcon(kind: kind, size: 64)
                     Text(workout.name)
                         .font(.system(.title, design: .rounded).bold())
-                    Text("\(Format.day(workout.date)) · \(event.defaultTime)")
+                    Text(Format.day(workout.date))
                         .font(.headline)
                         .foregroundStyle(kind.color)
                     if planner.customIDs.contains(workout.id) {
