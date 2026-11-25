@@ -56,8 +56,8 @@ struct Message: Identifiable {
 
 extension Message {
     init(_ r: ScheduleResult) {
-        var lines = ["\(r.scheduled) trainingen klaargezet voor je Watch.",
-                     "Open Workout op je Watch. Bovenaan staat Rondje met de training van vandaag, en via ... de komende 7 dagen."]
+        var lines = ["\(r.scheduled) trainingen toegevoegd.",
+                     "Elke training staat op de dag zelf bovenaan in Workout op je Watch, in het blok Rondje."]
         if r.skippedPast > 0 {
             lines.append("\(r.skippedPast) overgeslagen omdat ze al geweest zijn.")
         }
@@ -67,6 +67,6 @@ extension Message {
         if !r.missing.isEmpty {
             lines.append("Niet gelukt: \(r.missing.joined(separator: ", ")).")
         }
-        self.init(title: r.missing.isEmpty ? "Klaargezet" : "Deels gelukt", text: lines.joined(separator: "\n\n"))
+        self.init(title: r.missing.isEmpty ? "Toegevoegd" : "Deels gelukt", text: lines.joined(separator: "\n\n"))
     }
 }

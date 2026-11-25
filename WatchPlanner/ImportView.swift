@@ -245,7 +245,7 @@ struct ImportView: View {
         do {
             try store.upsert(event)
             if planNow {
-                Task { await planner.put(event.workouts, time: event.defaultTime, title: "\(event.name) op je Watch gezet", events: store.events) }
+                Task { await planner.put(event.workouts, time: event.defaultTime, title: "\(event.name) toegevoegd", events: store.events) }
             }
             dismiss()
         } catch {

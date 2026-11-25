@@ -170,22 +170,22 @@ struct EventView: View {
             if !upcoming.isEmpty {
                 if onWatch.count == upcoming.count {
                     Menu {
-                        Button("Opnieuw klaarzetten", systemImage: "arrow.clockwise") {
-                            Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
+                        Button("Opnieuw toevoegen", systemImage: "arrow.clockwise") {
+                            Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) toegevoegd", events: store.events) }
                         }
                         Button("Haal week van Watch", systemImage: "applewatch.slash", role: .destructive) {
                             Task { await planner.remove(upcoming, time: event.defaultTime, events: store.events) }
                         }
                     } label: {
-                        Label("Week op Watch", systemImage: "checkmark")
+                        Label("Week toegevoegd", systemImage: "checkmark")
                             .font(.caption.bold())
                             .foregroundStyle(Theme.accent)
                     }
                 } else {
                     Button {
-                        Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
+                        Task { await planner.put(upcoming, time: event.defaultTime, title: "\(title) toegevoegd", events: store.events) }
                     } label: {
-                        Text(onWatch.isEmpty ? "Zet week op Watch" : "Zet rest op Watch")
+                        Text(onWatch.isEmpty ? "Voeg week toe" : "Voeg rest toe")
                             .font(.caption.bold())
                             .foregroundStyle(.black)
                             .padding(.horizontal, 10)

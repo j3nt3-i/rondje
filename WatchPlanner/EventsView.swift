@@ -135,7 +135,7 @@ struct EventsView: View {
                 Text([
                     "\(total) trainingen",
                     last.map { "t/m \($0)" },
-                    onWatch > 0 ? "\(onWatch) klaargezet" : nil,
+                    onWatch > 0 ? "\(onWatch) toegevoegd" : nil,
                 ].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption)
                 .foregroundStyle(.secondary)

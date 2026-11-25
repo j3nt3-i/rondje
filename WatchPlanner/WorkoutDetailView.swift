@@ -22,7 +22,10 @@ struct WorkoutDetailView: View {
                         .font(.headline)
                         .foregroundStyle(kind.color)
                     if planner.onWatchIDs.contains(workout.id) {
-                        Label("Klaargezet voor je Watch", systemImage: "applewatch.radiowaves.left.and.right")
+                        Label(ScheduleDates.day(workout.date).map { ScheduleDates.calendar.isDateInToday($0) } == true
+                              ? "Staat vandaag op je Watch"
+                              : "Toegevoegd, op je Watch op \(Format.shortDay(workout.date).lowercased())",
+                              systemImage: "applewatch")
                             .font(.subheadline)
                             .foregroundStyle(Theme.accent)
                     } else if ScheduleDates.isPast(workout.date) {

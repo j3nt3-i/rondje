@@ -222,29 +222,31 @@ struct WorkoutRow: View {
             }
             Spacer(minLength: 4)
             if let status {
-                Text(status.text)
-                    .font(.caption.bold())
-                    .foregroundStyle(status.color)
-                    .multilineTextAlignment(.trailing)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: 90, alignment: .trailing)
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text(status.title)
+                        .font(.caption.bold())
+                        .foregroundStyle(status.color)
+                    if let detail = status.detail {
+                        Text(detail)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .multilineTextAlignment(.trailing)
             }
         }
         .opacity(isPast ? 0.45 : 1)
         .padding(.vertical, 2)
     }
 
-    private var status: (text: String, color: Color)? {
-        if isPast { return ("Geweest", .secondary) }
+    private var status: (title: String, detail: String?, color: Color)? {
+        if isPast { return ("Geweest", nil, .secondary) }
         guard let onWatch else { return nil }
-        guard onWatch else { return ("Niet op Watch", .secondary) }
-        // The Watch shows a week ahead, so later workouts appear 7 days before.
-        let cal = ScheduleDates.calendar
-        if let day = ScheduleDates.day(workout.date),
-           let visible = cal.date(byAdding: .day, value: -7, to: day),
-           visible > cal.startOfDay(for: .now) {
-            return ("Op Watch vanaf \(Format.shortDay(visible).lowercased())", Theme.accent.opacity(0.75))
+        guard onWatch else { return ("Niet op Watch", nil, .secondary) }
+        // A scheduled workout shows up in Workout on the Watch on its own day.
+        if let day = ScheduleDates.day(workout.date), !ScheduleDates.calendar.isDateInToday(day) {
+            return ("Toegevoegd", "beschikbaar \(Format.shortDay(day).lowercased())", Theme.accent)
         }
-        return ("Op Watch", Theme.accent)
+        return ("Op Watch", nil, Theme.accent)
     }
 }
