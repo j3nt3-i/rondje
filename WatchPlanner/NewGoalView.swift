@@ -684,7 +684,7 @@ struct NewGoalView: View {
         }
         // "lopen?" is a question back, not an answer: explain instead of guessing.
         if t.hasSuffix("?") {
-            reply(t, explain(step))
+            explainAgain(t)
             return
         }
         act(on: take(t), said: t)
@@ -699,12 +699,12 @@ struct NewGoalView: View {
             typedAnswers[step] = t.isEmpty || pills ? nil : t
             goNext()
         case .ask(let more): reply(t, more)
-        case .no: reply(t, explain(step))
+        case .no: explainAgain(t)
         }
     }
 
     private static let yesNo: [String: String] = [
-        "ja": "Ja", "jaa": "Ja", "jep": "Ja", "yes": "Ja", "ja graag": "Ja", "graag": "Ja", "ok": "Ja", "oké": "Ja",
+        "ja": "Ja", "jaa": "Ja", "jep": "Ja", "yes": "Ja", "ok": "Ja", "oké": "Ja",
         "okay": "Ja", "prima": "Ja", "goed": "Ja", "is goed": "Ja", "zeker": "Ja",
         "nee": "Nee", "neen": "Nee", "nope": "Nee", "no": "Nee", "niet": "Nee",
     ]
@@ -714,7 +714,7 @@ struct NewGoalView: View {
         switch step {
         case .name: return goalPresets.contains { $0.title.lowercased() == t.lowercased() }
         case .method: return NewGoalView.yesNo[t.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))] != nil
-        case .perWeek: return t.range(of: #"^[1-7]\s*(x|keer)?$"#, options: [.regularExpression, .caseInsensitive]) != nil
+        case .perWeek: return t.range(of: #"^[1-7]\s*(x|keer)?(\s*per week)?$"#, options: [.regularExpression, .caseInsensitive]) != nil
         case .date: return NewGoalView.date(from: t) != nil || NewGoalView.dayNumber(t) != nil || NewGoalView.monthNumber(t) != nil
         default: return false
         }
@@ -725,50 +725,76 @@ struct NewGoalView: View {
         .level: .level, .aim: .aim, .wishes: .wishes,
     ]
 
-    /// Acts on what Apple Intelligence read: answer this question, change an earlier answer, or explain.
+    /// Acts on what Apple Intelligence read. Be generous: anything that can be read as an answer
+    /// counts. Only a clear change to an earlier answer, a real question, or nonsense as a goal name
+    /// gets something else.
     private func handle(_ turn: WorkoutAI.Turn, said t: String) async {
         let target = turn.field.flatMap { f in NewGoalView.aiFields.first { $0.value == f }?.key }
         let gives = turn.kind == .answer || turn.kind == .correction
+        let free: Set<Step> = [.name, .level, .aim, .wishes]
 
-        // A change to an earlier answer. Without a usable new value, ask that question again.
+        // A change to an earlier answer. Without a new value, ask that question again,
+        // but only when you clearly talk about it ("de datum klopt niet").
         if gives, let target, target != step, pastSteps.contains(target) {
-            // Read your own words first; for a name or a free answer, the part Apple Intelligence picked out.
-            let free: Set<Step> = [.name, .level, .aim, .wishes]
             if let said = change(target, to: free.contains(target) ? [turn.value] : [t, turn.value]) {
                 reply(t, "\(said) \(ask(step))")
-            } else {
-                jump(to: target)
-                reply(t, "Geen probleem, dan pas ik dat aan.")
-            }
-            return
-        }
-        // An answer to this question. Apple Intelligence sometimes calls "Pizza" or "weet ik nog niet"
-        // a question; without a question mark those count as answers.
-        let answers = target == step || (target == nil && step == .name)
-        let unsure = step == .name || NewGoalView.saysNo(t)
-        let asks = turn.kind == .question && (t.contains("?") || !unsure)
-        let ok = answers && !asks && (gives || unsure)
-        // Nonsense, like "Pizza" as a goal. Sending the same again means you mean it.
-        if ok, !turn.fits, turn.kind != .correction, doubted != t {
-            doubted = t
-            reply(t, "Sorry, daar kom ik niet uit. \(explain(step))")
-            return
-        }
-        if ok {
-            // Free answers keep your own words; a name only when Apple Intelligence did not make it up.
-            let tries: [String] = switch step {
-            case .level, .aim, .wishes: [t]
-            case .name: t.lowercased().contains(turn.value.lowercased()) && !turn.value.isEmpty ? [turn.value] : [t]
-            default: [t, turn.value].filter { !$0.isEmpty }
-            }
-            for v in tries {
-                let taken = take(v)
-                if case .no = taken { continue }
-                act(on: taken, said: t)
                 return
             }
+            if mentionsTopic(of: target, in: t) {
+                jump(to: target)
+                reply(t, "Geen probleem, dan pas ik dat aan.")
+                return
+            }
+            // Not clearly about that earlier question: read it as an answer to this one.
         }
-        reply(t, turn.kind == .other || !turn.fits ? "Sorry, daar kom ik niet uit. \(explain(step))" : explain(step))
+        // A real question back ("lopen?", "wat raad je aan?"): explain, with choices where that helps.
+        if t.contains("?"), turn.kind == .question || turn.kind == .other {
+            explainAgain(t)
+            return
+        }
+        // "Weet ik nog niet" on what you train for: help choose.
+        if step == .name, NewGoalView.saysNo(t) {
+            reply(t, "Geen probleem! Kies hieronder iets, bijvoorbeeld Fit blijven. Je kunt het later nog veranderen.")
+            return
+        }
+        // Nonsense as a goal or a level, like "Pizza". Sending the same again means you mean it.
+        if [.name, .level].contains(step), !turn.fits, !NewGoalView.saysNo(t), turn.kind != .correction, doubted != t {
+            doubted = t
+            explainAgain(t, sorry: true)
+            return
+        }
+        // Read it as an answer here. Free answers keep your own words;
+        // a name only uses what Apple Intelligence picked out when it is really in your message.
+        let tries: [String] = switch step {
+        case .level, .aim, .wishes: [t]
+        case .name: !turn.value.isEmpty && t.lowercased().contains(turn.value.lowercased()) ? [turn.value] : [t]
+        default: [t, turn.value].filter { !$0.isEmpty }
+        }
+        for v in tries {
+            let taken = take(v)
+            if case .no = taken { continue }
+            act(on: taken, said: t)
+            return
+        }
+        explainAgain(t, sorry: turn.kind == .other)
+    }
+
+    /// Explains the question again, with choices to tap where that helps.
+    private func explainAgain(_ t: String, sorry: Bool = false) {
+        options = switch step {
+        case .trail: ["Weet ik niet"]
+        case .date: ["Nog geen datum"]
+        case .method: ["Help me ermee", "Ik heb er al een", "Doe ik later"]
+        case .perWeek: ["2x per week", "3x per week", "4x per week"]
+        default: []
+        }
+        reply(t, (sorry ? "Sorry, daar kom ik niet uit. " : "") + explain(step))
+    }
+
+    /// Whether you clearly talk about an earlier question: "de datum klopt niet".
+    private func mentionsTopic(of s: Step, in t: String) -> Bool {
+        let l = t.lowercased()
+        return topics.first { $0.0 == s }?.1.contains(where: l.contains) ?? false
     }
 
     private enum Taken { case ok, no, ask(String) }
@@ -868,6 +894,8 @@ struct NewGoalView: View {
                 let rest = t.replacingCharacters(in: time, with: "").trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
                 ownAimOn = !rest.isEmpty
                 ownAim = rest
+            } else if let pill = aimChoices.first(where: { $0.lowercased() == t.lowercased() }) {
+                aims.insert(pill)
             } else {
                 ownAimOn = !t.isEmpty
                 ownAim = t
@@ -877,7 +905,10 @@ struct NewGoalView: View {
                 return .ask("Welke tijd wil je neerzetten? Typ bijvoorbeeld 1:55 of onder de 2 uur.")
             }
         case .wishes:
-            ownWish = t
+            // "nee", "geen", "niks": no wishes.
+            let none = ["nee", "geen", "niks", "nope", "geen wensen", "nee hoor", "niet echt"]
+            let l = t.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            ownWish = none.contains(l) || l.hasPrefix("geen idee") || l.hasPrefix("weet ik") ? "" : t
         default:
             return .no
         }
@@ -934,6 +965,7 @@ struct NewGoalView: View {
         (.level, ["niveau", "lukt"]),
         (.aim, ["bereiken"]),
         (.wishes, ["wens"]),
+        (.method, ["schema", "hulp", "helpen"]),
     ]
 
     /// Puts a new value in an earlier answer, trying each text in turn ("4" from Apple Intelligence,
@@ -1007,7 +1039,7 @@ struct NewGoalView: View {
         case .trail: return "Hoe lang is je trail, en hoeveel hoogtemeters? Typ bijvoorbeeld 15 km, 400 hoogtemeters, of weet ik niet."
         case .date: return "Op welke dag is je wedstrijd of doel? Typ bijvoorbeeld 13 december, of nog geen datum."
         case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Wil je dat, of heb je al een schema? Later mag ook."
-        case .perWeek: return "Hoe vaak per week wil je hardlopen? Bijvoorbeeld 3 keer."
+        case .perWeek: return "Hoe vaak per week wil je hardlopen? Twijfel je, dan is 3 keer een mooi begin."
         case .level: return "Hoe ver kun je nu lopen, en hoe zwaar voelt dat? Bijvoorbeeld: 5 km lukt, maar het is zwaar."
         case .aim: return "Wat wil je halen? Bijvoorbeeld uitlopen of een tijd neerzetten. Kies er een of meer, of typ het zelf."
         case .wishes: return "Heb je wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
@@ -1141,6 +1173,10 @@ struct NewGoalView: View {
         let found = re.matches(in: l, range: NSRange(l.startIndex..., in: l))
             .compactMap { Range($0.range(at: 1), in: l).flatMap { Int(l[$0]) } }
         guard found.count == 1, l.filter(\.isNumber).count == String(found[0]).count, (1...31).contains(found[0]) else { return nil }
+        // "over 3 maanden" or "18 km" is not a day: only small words may stand around it.
+        let filler: Set<String> = ["de", "op", "rond", "ongeveer", "het", "is", "om", "e", "ste", "eigenlijk", "toch"]
+        let words = l.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        guard words.allSatisfy(filler.contains) else { return nil }
         return found[0]
     }
 
