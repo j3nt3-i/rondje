@@ -149,7 +149,7 @@ struct AddWorkoutView: View {
         guard let w = editing else { return }
         date = ScheduleDates.day(w.date) ?? date
         name = w.name
-        text = WorkoutText.text(for: w)
+        text = WorkoutText.written(for: w)
     }
 
     // MARK: - Day strip

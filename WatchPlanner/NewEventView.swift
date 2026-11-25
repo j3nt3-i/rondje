@@ -227,23 +227,7 @@ struct NewEventView: View {
     /// Rules plus Apple Intelligence.
     private var result: Result<TrainingSchedule, Error>? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
-        return Result {
-            let p = try WorkoutText.programWithWarnings(text, weekStart: weekStart)
-            var e = p.schedule
-            for d in p.doubts {
-                guard let w = aiWorkouts[d.key] else { continue }
-                if let id = d.workoutID, let i = e.workouts.firstIndex(where: { $0.id == id }) {
-                    e.workouts[i] = w
-                } else if !e.workouts.contains(where: { $0.id == w.id }) {
-                    e.workouts.append(w)
-                }
-            }
-            e.workouts.sort { $0.date < $1.date }
-            if e.workouts.isEmpty {
-                throw WorkoutText.ParseError(message: p.doubts.compactMap(\.problem).first ?? "Ik vond geen trainingen.")
-            }
-            return e
-        }
+        return Result { try WorkoutAI.merge(try WorkoutText.programWithWarnings(text, weekStart: weekStart), aiWorkouts) }
     }
 
     /// Workouts that neither the rules nor Apple Intelligence could read.
@@ -270,16 +254,10 @@ struct NewEventView: View {
         try? await Task.sleep(for: .milliseconds(700)) // wait until typing pauses
         guard !Task.isCancelled else { return }
         thinking = true
-        defer { thinking = false }
-        for d in doubts {
-            guard !Task.isCancelled else { return }
-            guard let r = try? await WorkoutAI.workout(date: d.date, name: d.name.isEmpty ? "x" : d.name, text: d.text),
-                  r.usedAI else { continue }
-            var w = r.workout
-            if d.name.isEmpty { w.name = WorkoutText.autoName(date: d.date, for: w, text: d.text) }
-            guard !Task.isCancelled else { return }
-            aiWorkouts[d.key] = w
-        }
+        let found = await WorkoutAI.readDoubts(doubts)
+        guard !Task.isCancelled else { return }
+        aiWorkouts = found
+        thinking = false
     }
 
     private func create() {

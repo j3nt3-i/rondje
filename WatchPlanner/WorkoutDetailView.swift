@@ -63,12 +63,12 @@ struct WorkoutDetailView: View {
             }
 
             Section {
-                Text(WorkoutText.text(for: workout))
-                    .font(.system(.callout, design: .monospaced))
+                Text(WorkoutText.written(for: workout))
+                    .font(.callout)
                     .textSelection(.enabled)
                 Button(copied ? "Gekopieerd" : "Kopieer als tekst",
                        systemImage: copied ? "checkmark" : "doc.on.doc") {
-                    UIPasteboard.general.string = WorkoutText.text(for: workout)
+                    UIPasteboard.general.string = WorkoutText.written(for: workout)
                     copied = true
                 }
             } header: {

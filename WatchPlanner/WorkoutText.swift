@@ -125,6 +125,26 @@ enum WorkoutText {
         return lines.joined(separator: separator)
     }
 
+    /// Readable version for people, which the parser reads back the same:
+    /// "Warming-up 15 min in zone 2", "6x 45 sec in zone 4 / 90 sec in zone 2", "Cooling-down".
+    static func written(for w: PlannedWorkout, separator: String = "\n") -> String {
+        func part(_ goal: GoalSpec, _ zone: Int?) -> String {
+            [goal.type == .open ? "open" : goal.label, zone.map { "in zone \($0)" }].compactMap { $0 }.joined(separator: " ")
+        }
+        var lines: [String] = []
+        if let wu = w.warmup {
+            lines.append(wu.goal.type == .open && wu.zone == nil ? "Warming-up" : "Warming-up " + part(wu.goal, wu.zone))
+        }
+        for b in w.blocks ?? [] {
+            let steps = b.steps.map { part($0.goal, $0.zone) }.joined(separator: " / ")
+            lines.append(b.iterations == 1 && b.steps.count == 1 ? steps : "\(b.iterations)x \(steps)")
+        }
+        if let cd = w.cooldown {
+            lines.append(cd.goal.type == .open && cd.zone == nil ? "Cooling-down" : "Cooling-down " + part(cd.goal, cd.zone))
+        }
+        return lines.joined(separator: separator)
+    }
+
     // MARK: - Free text to short format
 
     /// Rewrites a free description to one short-format line per part.
@@ -420,12 +440,22 @@ enum WorkoutText {
         return cal.date(byAdding: .day, value: days, to: today) ?? today
     }
 
+    /// The whole event as readable text: "1 dec 2026: Heuvels" and the parts below it.
     static func programText(for e: TrainingSchedule) -> String {
-        var parts = ["\(e.name)\ntijd \(e.defaultTime)"]
+        var parts = [e.name]
         for w in e.workouts {
-            parts.append("\(w.date) \(w.name)\n" + text(for: w))
+            parts.append("\(dayLine(w.date)): \(w.name)\n" + written(for: w))
         }
         return parts.joined(separator: "\n\n")
+    }
+
+    private static let monthNames = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"]
+
+    /// "2026-12-01" -> "1 dec 2026"
+    private static func dayLine(_ iso: String) -> String {
+        let n = iso.split(separator: "-").compactMap { Int($0) }
+        guard n.count == 3, (1...12).contains(n[1]) else { return iso }
+        return "\(n[2]) \(monthNames[n[1] - 1]) \(n[0])"
     }
 
     /// Prompt for Claude with what we know about the event and the runner.

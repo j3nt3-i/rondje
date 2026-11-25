@@ -67,6 +67,41 @@ enum WorkoutAI {
         return (try rules.get().workout, false)
     }
 
+    /// Second reading for a pasted schedule: Apple Intelligence tries every workout the
+    /// rules skipped or doubted. Returns the ones it could read, by Doubt.key.
+    static func readDoubts(_ doubts: [WorkoutText.Doubt]) async -> [String: PlannedWorkout] {
+        guard isAvailable, !doubts.isEmpty else { return [:] }
+        var found: [String: PlannedWorkout] = [:]
+        for d in doubts {
+            if Task.isCancelled { break }
+            guard let r = try? await workout(date: d.date, name: d.name.isEmpty ? "x" : d.name, text: d.text),
+                  r.usedAI else { continue }
+            var w = r.workout
+            if d.name.isEmpty { w.name = WorkoutText.autoName(date: d.date, for: w, text: d.text) }
+            found[d.key] = w
+        }
+        return found
+    }
+
+    /// The rules' schedule with Apple Intelligence's readings filled in.
+    static func merge(_ parsed: (schedule: TrainingSchedule, doubts: [WorkoutText.Doubt]),
+                      _ ai: [String: PlannedWorkout]) throws -> TrainingSchedule {
+        var e = parsed.schedule
+        for d in parsed.doubts {
+            guard let w = ai[d.key] else { continue }
+            if let id = d.workoutID, let i = e.workouts.firstIndex(where: { $0.id == id }) {
+                e.workouts[i] = w
+            } else if !e.workouts.contains(where: { $0.id == w.id }) {
+                e.workouts.append(w)
+            }
+        }
+        e.workouts.sort { $0.date < $1.date }
+        if e.workouts.isEmpty {
+            throw WorkoutText.ParseError(message: parsed.doubts.compactMap(\.problem).first ?? "Ik vond geen trainingen.")
+        }
+        return e
+    }
+
     private static func cleanOutput(_ text: String) -> String {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }

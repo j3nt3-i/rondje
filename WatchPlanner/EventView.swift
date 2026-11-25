@@ -16,6 +16,7 @@ struct EventView: View {
 
     @State private var showAdd = false
     @State private var showEdit = false
+    @State private var showEditSchedule = false
     @State private var confirmDelete = false
     @State private var message: Message?
 
@@ -94,6 +95,7 @@ struct EventView: View {
                         Task { await planner.put(event.workouts, time: event.defaultTime, title: "\(event.name) toegevoegd", events: store.events) }
                     }
                     .disabled(event.workouts.allSatisfy { ScheduleDates.isPast($0.date) || planner.onWatchIDs.contains($0.id) })
+                    Button("Wijzig schema", systemImage: "list.bullet.rectangle") { showEditSchedule = true }
                     Button("Wijzig naam en datum", systemImage: "pencil") { showEdit = true }
                     Button("Kopieer als tekst", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = WorkoutText.programText(for: event)
@@ -108,6 +110,9 @@ struct EventView: View {
                 }
                 Button("Training toevoegen", systemImage: "plus") { showAdd = true }
             }
+        }
+        .sheet(isPresented: $showEditSchedule) {
+            EditScheduleView(event: event)
         }
         .sheet(isPresented: $showEdit) {
             EditEventView(original: event) { newName in eventName = newName }
