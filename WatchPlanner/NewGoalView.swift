@@ -51,6 +51,7 @@ struct NewGoalView: View {
     @State private var composerError: String?
     @State private var showCalendar = false
     @State private var understanding = false
+    @FocusState private var composerFocused: Bool
 
     // Schedule text and how it reads
     @State private var text = ""
@@ -75,6 +76,9 @@ struct NewGoalView: View {
                             typingBubble
                         } else {
                             botBubble(question(step))
+                            suggestions
+                                .padding(.leading, 36)
+                                .transition(.opacity)
                             stepCard
                         }
                         Color.clear.frame(height: 1).id("bottom")
@@ -88,7 +92,7 @@ struct NewGoalView: View {
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
             .safeAreaInset(edge: .bottom) {
-                if !botTyping {
+                if !botTyping && step != .method {
                     dock
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -108,10 +112,6 @@ struct NewGoalView: View {
                         Button("Terug", systemImage: "arrow.uturn.backward") { goBack() }
                     }
                 }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Klaar") { hideKeyboard() }.bold()
-                }
             }
             .animation(.snappy, value: step)
             .animation(.snappy, value: botTyping)
@@ -120,6 +120,8 @@ struct NewGoalView: View {
                 botTyping = true
                 try? await Task.sleep(for: .milliseconds(450))
                 botTyping = false
+                // Keep the keyboard up where you can type an answer.
+                composerFocused = typingStep && !showCalendar
             }
             .task(id: "\(text)|\(weekStart)") { await read() }
             .onChange(of: scenePhase) { _, phase in
@@ -429,6 +431,9 @@ struct NewGoalView: View {
                     .font(.subheadline.bold())
             }
 
+        case .method:
+            EmptyView()
+
         case .review:
             bigButton("Maak doel", "checkmark") { create() }
                 .disabled(!canCreate)
@@ -439,9 +444,11 @@ struct NewGoalView: View {
                 if let composerError {
                     Text(composerError).font(.footnote).foregroundStyle(.orange)
                 }
-                suggestions
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField(placeholder, text: $composer, axis: .vertical)
+                        .focused($composerFocused)
+                        .submitLabel(.send)
+                        .onSubmit { if canSend { Task { await send() } } }
                         .lineLimit(1...(step == .paste ? 8 : 4))
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .background(Theme.pill, in: RoundedRectangle(cornerRadius: 22))
@@ -455,18 +462,8 @@ struct NewGoalView: View {
 
     /// Tappable options above the chat field. One-choice steps answer right away;
     /// multi-choice steps toggle, and the send button sends them.
-    @ViewBuilder
     private var suggestions: some View {
-        let row: some View = ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) { suggestionChips }
-        }
-        .scrollClipDisabled()
-        switch step {
-        case .name, .aim, .wishes, .level:
-            FlowLayout(spacing: 8) { suggestionChips }
-        default:
-            row
-        }
+        FlowLayout(spacing: 8) { suggestionChips }
     }
 
     @ViewBuilder
@@ -479,7 +476,10 @@ struct NewGoalView: View {
         case .trail:
             GoalPill(title: "Weet ik nog niet", isOn: false) { trailKm = ""; trailUp = ""; goNext() }
         case .date:
-            GoalPill(icon: "calendar", title: "Kies in kalender", isOn: showCalendar) { hideKeyboard(); showCalendar.toggle() }
+            GoalPill(icon: "calendar", title: "Kies in kalender", isOn: showCalendar) {
+                showCalendar.toggle()
+                composerFocused = !showCalendar
+            }
             GoalPill(title: "Nog geen datum", isOn: false) { hasDate = false; showCalendar = false; goNext() }
         case .method:
             GoalPill(icon: "sparkles", title: "Met AI", isOn: false) { method = .ai; goNext() }
@@ -538,6 +538,14 @@ struct NewGoalView: View {
         case .wishes: return "Kies hierboven, of typ bijv. nooit op woensdag"
         case .paste: return method == .ai ? "Of plak het antwoord hier" : "Plak of typ je schema"
         default: return ""
+        }
+    }
+
+    /// Steps answered in the chat field; the others are buttons.
+    private var typingStep: Bool {
+        switch step {
+        case .copy, .openApp, .review, .method: return false
+        default: return true
         }
     }
 
