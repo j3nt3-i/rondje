@@ -128,6 +128,7 @@ struct NewGoalView: View {
                 TextField("Naam van je doel, bijv. Devil's Trail", text: $name)
                     .font(.title3.bold())
                     .focused($nameFocused)
+                    .task { nameFocused = true }
                     .submitLabel(.next)
                     .onSubmit { if nameOK { goNext() } }
                     .padding(18)
