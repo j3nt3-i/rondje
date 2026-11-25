@@ -13,11 +13,10 @@ struct NewEventView: View {
     @State private var name = ""
     @State private var hasRaceDate = false
     @State private var raceDate = Calendar.current.date(byAdding: .month, value: 2, to: .now) ?? .now
-    @State private var startTime = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: .now) ?? .now
 
     @State private var text = ""
     @State private var planNow = true
-    @State private var promptCopied = false
+    @State private var showPrompt = false
     @State private var saveError: String?
     @State private var weekStart = WorkoutText.defaultWeekStart()
 
@@ -36,7 +35,6 @@ struct NewEventView: View {
                         DatePicker("Datum", selection: $raceDate, in: Calendar.current.startOfDay(for: .now)...,
                                    displayedComponents: .date)
                     }
-                    DatePicker("Starttijd trainingen", selection: $startTime, displayedComponents: .hourAndMinute)
                 } header: {
                     Text("Event")
                 } footer: {
@@ -66,6 +64,9 @@ struct NewEventView: View {
                 }
             }
             .task(id: "\(text)|\(weekStart)") { await askAI() }
+            .sheet(isPresented: $showPrompt) {
+                ClaudePromptView(event: finalName, raceDate: hasRaceDate ? raceDate : nil)
+            }
         }
     }
 
@@ -82,11 +83,8 @@ struct NewEventView: View {
                 .buttonBorderShape(.capsule)
                 .tint(Theme.accent)
                 Spacer()
-                Button(promptCopied ? "Gekopieerd" : "Prompt voor Claude",
-                       systemImage: promptCopied ? "checkmark" : "sparkles") {
-                    UIPasteboard.general.string = WorkoutText.claudePrompt(
-                        event: finalName, raceDate: hasRaceDate ? raceDate : nil, startTime: timeString)
-                    promptCopied = true
+                Button("Prompt voor Claude", systemImage: "sparkles") {
+                    showPrompt = true
                 }
                 .buttonStyle(.bordered)
                 .buttonBorderShape(.capsule)
@@ -194,11 +192,6 @@ struct NewEventView: View {
         return typed.isEmpty ? parsed?.schedule.name ?? "" : typed
     }
 
-    private var timeString: String {
-        let c = Calendar.current.dateComponents([.hour, .minute], from: startTime)
-        return String(format: "%02d:%02d", c.hour ?? 7, c.minute ?? 0)
-    }
-
     private var raceDateString: String? {
         guard hasRaceDate else { return nil }
         let c = Calendar.current.dateComponents([.year, .month, .day], from: raceDate)
@@ -247,7 +240,7 @@ struct NewEventView: View {
             guard case .success(let e) = result else { return nil }
             workouts = e.workouts
         }
-        return TrainingSchedule(name: name, defaultTime: timeString, workouts: workouts, raceDate: raceDateString)
+        return TrainingSchedule(name: name, defaultTime: "07:00", workouts: workouts, raceDate: raceDateString)
     }
 
     private func askAI() async {
@@ -295,7 +288,6 @@ struct EditEventView: View {
     @State private var name = ""
     @State private var hasRaceDate = false
     @State private var raceDate = Date()
-    @State private var startTime = Date()
     @State private var error: String?
 
     var body: some View {
@@ -308,12 +300,9 @@ struct EditEventView: View {
                     if hasRaceDate {
                         DatePicker("Datum", selection: $raceDate, displayedComponents: .date)
                     }
-                    DatePicker("Starttijd trainingen", selection: $startTime, displayedComponents: .hourAndMinute)
                 } footer: {
                     if let error {
                         Text(error).foregroundStyle(.orange)
-                    } else {
-                        Text("Een nieuwe starttijd geldt voor trainingen die je daarna op je Watch zet.")
                     }
                 }
             }
@@ -341,15 +330,11 @@ struct EditEventView: View {
         } else {
             raceDate = Calendar.current.date(byAdding: .month, value: 2, to: .now) ?? .now
         }
-        let t = ScheduleDates.time(original.defaultTime) ?? (7, 0)
-        startTime = Calendar.current.date(bySettingHour: t.hour, minute: t.minute, second: 0, of: .now) ?? .now
     }
 
     private func save() {
         var e = original
         e.name = name.trimmingCharacters(in: .whitespaces)
-        let t = Calendar.current.dateComponents([.hour, .minute], from: startTime)
-        e.defaultTime = String(format: "%02d:%02d", t.hour ?? 7, t.minute ?? 0)
         if hasRaceDate {
             let c = Calendar.current.dateComponents([.year, .month, .day], from: raceDate)
             e.raceDate = String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)

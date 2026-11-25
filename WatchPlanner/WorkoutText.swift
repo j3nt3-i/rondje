@@ -428,22 +428,37 @@ enum WorkoutText {
         return parts.joined(separator: "\n\n")
     }
 
-    /// Prompt for Claude with what we know about the event.
-    static func claudePrompt(event: String, raceDate: Date?, startTime: String, today: Date = .now) -> String {
+    /// Prompt for Claude with what we know about the event and the runner.
+    static func claudePrompt(event: String, raceDate: Date?, perWeek: Int = 3,
+                             level: String = "", goal: String = "", wishes: String = "",
+                             today: Date = .now) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "nl_NL")
         f.dateFormat = "EEEE d MMMM yyyy"
         let name = event.trimmingCharacters(in: .whitespaces)
-        var goal = name.isEmpty ? "[mijn doel]" : name
-        if let raceDate { goal += ", op \(f.string(from: raceDate))" }
+
+        var about: [String] = []
+        if name.isEmpty {
+            about.append("Ik train voor een hardloopwedstrijd.")
+        } else if let raceDate {
+            about.append("Ik train voor \(name) op \(f.string(from: raceDate)).")
+        } else {
+            about.append("Ik train voor \(name).")
+        }
+        about.append("Vandaag is het \(f.string(from: today)). Begin het schema vanaf morgen.")
+        about.append("Ik wil \(perWeek) keer per week lopen.")
+        for (label, value) in [("Mijn niveau nu", level), ("Mijn doel", goal), ("Wensen", wishes)] {
+            let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !v.isEmpty { about.append("\(label): \(v)") }
+        }
+
         return """
-        Maak een hardloopschema voor mij. Mijn doel: \(goal). Vandaag is het \(f.string(from: today)). \
-        [Vertel hier hoe vaak je per week wilt lopen, je huidige niveau en eventuele wensen.]
+        Maak een hardloopschema voor mij.
+        \(about.joined(separator: "\n"))
 
         Geef het schema zonder uitleg, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
 
         \(name.isEmpty ? "Naam van het event" : name)
-        tijd \(startTime)
 
         2026-12-01 Di intervallen
         warmup 10 min z2
