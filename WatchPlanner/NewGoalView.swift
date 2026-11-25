@@ -31,8 +31,11 @@ struct NewGoalView: View {
     // AI questions (runs per week and level are remembered on this phone)
     @AppStorage("prompt.perWeek") private var perWeek = 3
     @AppStorage("prompt.level") private var level = ""
-    @State private var aim = ""
+    @State private var aims: Set<String> = []
     @State private var aimTime = ""
+    @State private var ownAimOn = false
+    @State private var ownAim = ""
+    @FocusState private var ownAimFocused: Bool
     @State private var wishes: Set<String> = []
     @State private var ownWish = ""
     @State private var openedApp = false
@@ -198,22 +201,41 @@ struct NewGoalView: View {
                 set: { level = $0 }))
 
         case .aim:
-            header("Wat wil je bereiken?", nil)
+            header("Wat wil je bereiken?", "Kies er een of meer.")
             FlowLayout(spacing: 10) {
-                ForEach(["Uitlopen", "Een tijd neerzetten", "Sneller worden", "Fit blijven"], id: \.self) { choice in
-                    GoalPill(title: choice, isOn: aim == choice) {
-                        aim = choice
-                        if choice != "Een tijd neerzetten" { timeFocused = false }
+                ForEach(aimChoices, id: \.self) { choice in
+                    GoalPill(title: choice, isOn: aims.contains(choice)) {
+                        if aims.contains(choice) { aims.remove(choice) } else { aims.insert(choice) }
+                        if !aims.contains("Een tijd neerzetten") { timeFocused = false }
                     }
                 }
+                GoalPill(icon: "plus", title: "Anders, namelijk...", isOn: ownAimOn) {
+                    ownAimOn.toggle()
+                    if !ownAimOn { ownAim = ""; ownAimFocused = false }
+                }
             }
-            if aim == "Een tijd neerzetten" {
-                TextField("Welke tijd? Bijv. 1:20 of onder de 50 min", text: $aimTime)
-                    .font(.title3.bold())
-                    .focused($timeFocused)
-                    .task { timeFocused = true }
-                    .submitLabel(.next)
-                    .onSubmit { goNext() }
+            if aims.contains("Een tijd neerzetten") {
+                HStack(spacing: 12) {
+                    Text("Tijd").font(.subheadline.bold()).foregroundStyle(Theme.accent)
+                    TextField("Bijv. 1:20 of onder de 50 min", text: $aimTime)
+                        .font(.title3.bold())
+                        .focused($timeFocused)
+                        .task { timeFocused = true }
+                        .submitLabel(.next)
+                        .onSubmit { goNext() }
+                }
+                    .padding(16)
+                    .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
+            }
+            if ownAimOn {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    Text("Anders").font(.subheadline.bold()).foregroundStyle(Theme.accent)
+                    TextField("Wat wil je nog meer bereiken?", text: $ownAim, axis: .vertical)
+                        .font(.title3.bold())
+                        .focused($ownAimFocused)
+                        .task { ownAimFocused = true }
+                }
                     .padding(16)
                     .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
@@ -393,7 +415,7 @@ struct NewGoalView: View {
         switch step {
         case .name: return nameOK
         case .level: return !level.trimmingCharacters(in: .whitespaces).isEmpty
-        case .aim: return !aim.isEmpty
+        case .aim: return !aimText.isEmpty
         default: return true
         }
     }
@@ -493,9 +515,17 @@ struct NewGoalView: View {
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
+    private let aimChoices = ["Uitlopen", "Een tijd neerzetten", "Sneller worden", "Fit blijven"]
+
+    /// "Uitlopen, Een tijd neerzetten: 1:20, plezier houden"
     private var aimText: String {
         let time = aimTime.trimmingCharacters(in: .whitespaces)
-        return aim == "Een tijd neerzetten" && !time.isEmpty ? "Een tijd neerzetten: \(time)" : aim
+        var parts = aimChoices.filter { aims.contains($0) }.map { choice in
+            choice == "Een tijd neerzetten" && !time.isEmpty ? "\(choice): \(time)" : choice
+        }
+        let own = ownAim.trimmingCharacters(in: .whitespacesAndNewlines)
+        if ownAimOn && !own.isEmpty { parts.append(own) }
+        return parts.joined(separator: ", ")
     }
 
     private var wishText: String {
