@@ -500,7 +500,7 @@ struct NewGoalView: View {
                 guard let s = strings.first, !s.isEmpty else { return }
                 Task { @MainActor in
                     text = s
-                    composer = ""
+                    clearComposer()
                     step = .review
                 }
             }
@@ -623,7 +623,7 @@ struct NewGoalView: View {
         default:
             break
         }
-        composer = ""
+        clearComposer()
         goNext()
     }
 
@@ -662,10 +662,20 @@ struct NewGoalView: View {
         return nil
     }
 
+    /// Empties the chat field, and again just after: the keyboard's autocorrect can put the
+    /// text back right after sending ("devember" becomes "december").
+    private func clearComposer() {
+        composer = ""
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            composer = ""
+        }
+    }
+
     /// Adds what you said and Rondje's answer to the chat, and stays on this question.
     private func reply(_ said: String, _ answer: String) {
         corrections.append(Correction(at: step, said: said, reply: answer))
-        composer = ""
+        clearComposer()
     }
 
     /// What Rondje says when you ask back, or when your answer did not fit the question.
@@ -697,7 +707,7 @@ struct NewGoalView: View {
         ownName = match == nil
         name = match?.title ?? value
         guard nameOK else { return }
-        composer = ""
+        clearComposer()
         goNext()
     }
 
@@ -708,6 +718,31 @@ struct NewGoalView: View {
     private static let numberWords: [(String, Int)] = [
         ("een", 1), ("één", 1), ("twee", 2), ("drie", 3), ("vier", 4), ("vijf", 5), ("zes", 6), ("zeven", 7),
     ]
+
+    /// "14 devember" -> "14 december": words close to a month name (one or two letters off).
+    static func fixMonthTypos(_ text: String) -> String {
+        text.split(separator: " ", omittingEmptySubsequences: false).map { raw in
+            let w = String(raw)
+            guard w.count >= 5, !months.contains(w), w.allSatisfy(\.isLetter) else { return w }
+            let best = months.map { ($0, distance(w, $0)) }.min { $0.1 < $1.1 }
+            return best.flatMap { $0.1 <= 2 ? $0.0 : nil } ?? w
+        }.joined(separator: " ")
+    }
+
+    private static func distance(_ a: String, _ b: String) -> Int {
+        let a = Array(a), b = Array(b)
+        var row = Array(0...b.count)
+        for i in 1...max(a.count, 1) where !a.isEmpty {
+            var prev = row[0]
+            row[0] = i
+            for j in 1...max(b.count, 1) where !b.isEmpty {
+                let cur = row[j]
+                row[j] = min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] == b[j - 1] ? 0 : 1))
+                prev = cur
+            }
+        }
+        return row[b.count]
+    }
 
     /// Finds a date inside a sentence: "oeps, het is eigenlijk 15 december".
     /// Only explicit dates count here, not a loose weekday ("lange duurloop toch op zondag").
@@ -786,6 +821,7 @@ struct NewGoalView: View {
         let cal = Calendar.current
         let today = cal.startOfDay(for: now)
         var t = text.lowercased().trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ".", with: "")
+        t = fixMonthTypos(t)
         t = t.replacingOccurrences(of: #"^(?:ergens|rond|rondom|ongeveer|zo'n|op|het is|de race is)\s+"#, with: "", options: .regularExpression)
 
         // "begin / half / midden / eind <maand>"
@@ -797,7 +833,8 @@ struct NewGoalView: View {
                 if cal.date(byAdding: .month, value: 1, to: first)! <= today { c.year! += 1; first = cal.date(from: c) ?? first }
                 let days = cal.range(of: .day, in: .month, for: first)?.count ?? 30
                 let day = parts[0] == "begin" ? 3 : parts[0].hasPrefix("eind") ? days : 15
-                return cal.date(byAdding: .day, value: day - 1, to: first)
+                guard let d = cal.date(byAdding: .day, value: day - 1, to: first) else { return nil }
+                return d < today ? cal.date(byAdding: .year, value: 1, to: d) : d
             }
         }
 
