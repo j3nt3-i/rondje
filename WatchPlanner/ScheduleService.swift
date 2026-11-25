@@ -128,6 +128,47 @@ final class ScheduleService {
         await scheduler.removeAllWorkouts()
     }
 
+    /// Adds these workouts to the Watch without touching the rest. Replaces them if they were there.
+    func add(_ workouts: [PlannedWorkout], time: String) async throws -> ScheduleResult {
+        guard WorkoutScheduler.isSupported else { throw ScheduleServiceError.notSupported }
+        guard await Self.authorize() else { throw ScheduleServiceError.notAuthorized }
+
+        let upcoming = workouts.filter { !ScheduleDates.isPast($0.date) }.sorted { $0.date < $1.date }
+        guard !upcoming.isEmpty else { throw ScheduleServiceError.nothingToSchedule }
+
+        var plans: [(PlannedWorkout, WorkoutPlan, DateComponents)] = []
+        for w in upcoming {
+            guard let when = ScheduleDates.components(day: w.date, time: time) else {
+                throw ScheduleServiceError.invalidDate(w.name)
+            }
+            plans.append((w, WorkoutBuilder.plan(for: w), when))
+        }
+
+        let ids = Set(plans.map(\.1.id))
+        let current = await scheduler.scheduledWorkouts
+        let others = current.filter { !ids.contains($0.plan.id) }.count
+        let limit = WorkoutScheduler.maxAllowedScheduledWorkoutCount
+        let room = max(0, limit - others)
+
+        for s in current where ids.contains(s.plan.id) {
+            await scheduler.remove(s.plan, at: Self.clean(s.date))
+        }
+        for (_, plan, when) in plans.prefix(room) {
+            await scheduler.schedule(plan, at: when)
+        }
+
+        let landed = Set(await scheduler.scheduledWorkouts.map(\.plan.id))
+        let tried = Array(plans.prefix(room))
+        let missing = tried.filter { !landed.contains($0.1.id) }.map(\.0.name)
+        return ScheduleResult(
+            scheduled: tried.count - missing.count,
+            skippedPast: workouts.count - upcoming.count,
+            overLimit: plans.count - tried.count,
+            limit: limit,
+            missing: missing
+        )
+    }
+
     /// Replaces everything on the Watch with the upcoming workouts of all events.
     func planOnWatch(_ events: [TrainingSchedule]) async throws -> ScheduleResult {
         guard WorkoutScheduler.isSupported else { throw ScheduleServiceError.notSupported }

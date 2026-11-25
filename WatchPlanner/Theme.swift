@@ -203,7 +203,6 @@ struct WorkoutRow: View {
     let workout: PlannedWorkout
     let kind: WorkoutKind
     let isPast: Bool
-    let onWatch: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -220,11 +219,7 @@ struct WorkoutRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 4)
-            if onWatch {
-                Image(systemName: "applewatch.radiowaves.left.and.right")
-                    .foregroundStyle(Theme.accent)
-                    .accessibilityLabel("Op Watch")
-            } else if isPast {
+            if isPast {
                 Image(systemName: "checkmark.circle")
                     .foregroundStyle(.tertiary)
                     .accessibilityLabel("Geweest")

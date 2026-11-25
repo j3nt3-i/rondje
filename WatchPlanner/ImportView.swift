@@ -159,7 +159,7 @@ struct ImportView: View {
             }
             ForEach(event.workouts) { w in
                 WorkoutRow(workout: w, kind: WorkoutKind(w, scheduleName: event.name),
-                           isPast: ScheduleDates.isPast(w.date), onWatch: false)
+                           isPast: ScheduleDates.isPast(w.date))
             }
         } header: {
             Text("Gevonden")

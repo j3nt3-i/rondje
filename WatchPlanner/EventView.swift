@@ -34,7 +34,7 @@ struct EventView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(weeks(event.workouts), id: \.start) { week in
-                Section("Week van \(Format.dayMonth(week.start))") {
+                Section {
                     ForEach(week.workouts) { w in
                         NavigationLink {
                             WorkoutDetailView(workout: w, event: event)
@@ -42,8 +42,7 @@ struct EventView: View {
                             WorkoutRow(
                                 workout: w,
                                 kind: WorkoutKind(w, scheduleName: event.name),
-                                isPast: ScheduleDates.isPast(w.date),
-                                onWatch: planner.onWatchIDs.contains(w.id)
+                                isPast: ScheduleDates.isPast(w.date)
                             )
                         }
                         .swipeActions {
@@ -52,6 +51,8 @@ struct EventView: View {
                             }
                         }
                     }
+                } header: {
+                    weekHeader(week, event: event)
                 }
             }
         }
@@ -86,6 +87,63 @@ struct EventView: View {
         } message: {
             Text("Alle trainingen van dit event gaan weg, ook van je Watch.")
         }
+    }
+
+    // MARK: - Week header
+
+    @ViewBuilder
+    private func weekHeader(_ week: Week, event: TrainingSchedule) -> some View {
+        let upcoming = week.workouts.filter { !ScheduleDates.isPast($0.date) }
+        let onWatch = upcoming.filter { planner.onWatchIDs.contains($0.id) }
+        let title = "Week van \(Format.dayMonth(week.start))"
+
+        HStack {
+            Text(title)
+            Spacer()
+            if !upcoming.isEmpty {
+                if onWatch.count == upcoming.count {
+                    Menu {
+                        Text(watchStatus(upcoming))
+                        Button("Opnieuw klaarzetten", systemImage: "arrow.clockwise") {
+                            Task { await planner.planWeek(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
+                        }
+                        Button("Haal week van Watch", systemImage: "applewatch.slash", role: .destructive) {
+                            Task { await planner.remove(upcoming, time: event.defaultTime, events: store.events) }
+                        }
+                    } label: {
+                        Text(watchStatus(upcoming))
+                            .font(.caption.bold())
+                            .foregroundStyle(Theme.accent)
+                    }
+                } else {
+                    Button {
+                        Task { await planner.planWeek(upcoming, time: event.defaultTime, title: "\(title) klaargezet", events: store.events) }
+                    } label: {
+                        Text(onWatch.isEmpty ? "Zet op Watch" : "Zet rest op Watch")
+                            .font(.caption.bold())
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Theme.accent, in: Capsule())
+                    }
+                    .disabled(planner.isBusy)
+                }
+            } else {
+                Text("Geweest")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .textCase(nil)
+    }
+
+    /// The Watch shows 7 days ahead, so a planned week shows up 7 days before its first workout.
+    private func watchStatus(_ workouts: [PlannedWorkout]) -> String {
+        let cal = ScheduleDates.calendar
+        guard let first = workouts.compactMap({ ScheduleDates.day($0.date) }).min(),
+              let visible = cal.date(byAdding: .day, value: -7, to: first),
+              visible > cal.startOfDay(for: .now) else { return "Op je Watch" }
+        return "Op Watch vanaf \(Format.shortDay(visible).lowercased())"
     }
 
     // MARK: - Actions

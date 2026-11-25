@@ -44,6 +44,22 @@ extension Planner {
         await refresh(events)
     }
 
+    /// Puts one week on the Watch, next to what is already there.
+    func planWeek(_ workouts: [PlannedWorkout], time: String, title: String, events: [TrainingSchedule]) async {
+        guard !isBusy else { return }
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let r = try await service.add(workouts, time: time)
+            await refresh(events)
+            var m = Message(r)
+            m.title = title
+            message = m
+        } catch {
+            message = Message(title: "Klaarzetten lukt niet", text: error.localizedDescription)
+        }
+    }
+
     func clearWatch(events: [TrainingSchedule]) async {
         await service.removeAll()
         await refresh(events)
