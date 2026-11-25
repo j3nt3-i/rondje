@@ -71,6 +71,8 @@ struct NewGoalView: View {
     @State private var trailMissing: TrailPart?
     // An answer Rondje could not use; sending it again means you mean it.
     @State private var doubted: String?
+    // Your answers exactly as you typed them. Your bubbles show these, never a rewritten version.
+    @State private var typedAnswers: [Step: String] = [:]
 
     private struct Correction: Identifiable {
         let id = UUID()
@@ -103,7 +105,7 @@ struct NewGoalView: View {
                         ForEach(pastSteps, id: \.self) { s in
                             botBubble(question(s))
                             correctionBubbles(at: s)
-                            userBubble(answer(s)) { jump(to: s) }
+                            userBubble(typedAnswers[s] ?? answer(s)) { jump(to: s) }
                         }
                         if streaming {
                             botBubble(streamed)
@@ -267,14 +269,16 @@ struct NewGoalView: View {
             }
         case .trail:
             if let up = Int(trailUp), up >= 500 { return "\(up) hoogtemeters, dat wordt klimmen!" }
-            return trailKm.isEmpty && trailUp.isEmpty ? "Geen probleem." : "Helder."
+            return trailKm.isEmpty && trailUp.isEmpty ? "Geen probleem." : "\(answer(.trail)), helder."
         case .date:
             guard hasDate else { return "Prima, dan houden we het flexibel." }
             let cal = Calendar.current
             let n = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: bigDay)).day ?? 0
-            if n < 21 { return "Nog maar \(n) dagen, we gaan ervoor." }
-            if n < 120 { return "Nog \(n) dagen, mooi op tijd." }
-            return "Nog \(n) dagen, lekker veel tijd om op te bouwen."
+            // Say the full date back, so you can see it was read right.
+            let day = Format.day(dayString(bigDay))
+            if n < 21 { return "\(day), nog maar \(n) dagen. We gaan ervoor." }
+            if n < 120 { return "\(day), nog \(n) dagen. Mooi op tijd." }
+            return "\(day), nog \(n) dagen. Lekker veel tijd om op te bouwen."
         case .method:
             switch method { case .ai: return "Leuk! Ik stel je een paar vragen en maak daar een prompt van. Die kopieer je naar je eigen AI, zoals Claude of ChatGPT. Het antwoord plak je hier terug, en dan zet ik je trainingen klaar."; case .paste: return "Top."; case .later: return "Prima, dan doen we dat later." }
         case .perWeek: return "\(perWeek)x per week, mooi."
@@ -541,7 +545,7 @@ struct NewGoalView: View {
             }
         case .level:
             ForEach(levels, id: \.title) { l in
-                GoalPill(title: l.title, isOn: false) { level = levelValue(l); goNext() }
+                GoalPill(title: l.title, isOn: false) { level = levelValue(l); typedAnswers[.level] = nil; goNext() }
             }
         case .aim:
             ForEach(aimChoices, id: \.self) { choice in
@@ -555,7 +559,7 @@ struct NewGoalView: View {
                     if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
                 }
             }
-            GoalPill(title: "Geen wensen", isOn: false) { wishes = []; ownWish = ""; goNext() }
+            GoalPill(title: "Geen wensen", isOn: false) { wishes = []; ownWish = ""; typedAnswers[.wishes] = nil; goNext() }
         case .paste:
             PasteButton(payloadType: String.self) { strings in
                 guard let s = strings.first, !s.isEmpty else { return }
@@ -663,7 +667,9 @@ struct NewGoalView: View {
     /// Moves on after an answer, asks more about a half answer, or explains the question.
     private func act(on taken: Taken, said t: String) {
         switch taken {
-        case .ok: goNext()
+        case .ok:
+            typedAnswers[step] = t.isEmpty ? nil : t
+            goNext()
         case .ask(let more): reply(t, more)
         case .no: reply(t, explain(step))
         }
@@ -972,6 +978,7 @@ struct NewGoalView: View {
         ownName = match == nil
         name = match?.title ?? value
         guard nameOK else { return }
+        typedAnswers[.name] = nil
         clearComposer()
         goNext()
     }
