@@ -88,15 +88,39 @@ final class ScheduleService {
 
     /// Takes one workout off the Watch, for example after deleting it.
     func remove(_ workout: PlannedWorkout, time: String) async {
-        guard WorkoutScheduler.isSupported, await Self.isAuthorized(),
-              let when = ScheduleDates.components(day: workout.date, time: time) else { return }
-        await scheduler.remove(WorkoutBuilder.plan(for: workout), at: when)
+        guard let when = ScheduleDates.components(day: workout.date, time: time) else { return }
+        await remove(plan: WorkoutBuilder.plan(for: workout), at: when)
     }
 
     /// Takes one item off the Watch, as listed by watchItems.
     func remove(_ item: WatchItem) async {
+        await remove(plan: item.plan, at: item.components)
+    }
+
+    /// remove(_:at:) needs the exact plan and date it was scheduled with, and says
+    /// nothing when it finds no match. So remove with a clean date, check, and if
+    /// it is still there, clear everything and put the others back.
+    private func remove(plan: WorkoutPlan, at date: DateComponents) async {
         guard WorkoutScheduler.isSupported, await Self.isAuthorized() else { return }
-        await scheduler.remove(item.plan, at: item.components)
+        let clean = Self.clean(date)
+        await scheduler.remove(plan, at: clean)
+
+        func isTarget(_ s: ScheduledWorkoutPlan) -> Bool {
+            s.plan.id == plan.id && Self.clean(s.date) == clean
+        }
+        let remaining = await scheduler.scheduledWorkouts
+        guard remaining.contains(where: isTarget) else { return }
+
+        let others = remaining.filter { !isTarget($0) }
+        await scheduler.removeAllWorkouts()
+        for other in others {
+            await scheduler.schedule(other.plan, at: Self.clean(other.date))
+        }
+    }
+
+    /// Only year, month, day, hour and minute.
+    private static func clean(_ c: DateComponents) -> DateComponents {
+        DateComponents(year: c.year, month: c.month, day: c.day, hour: c.hour ?? 0, minute: c.minute ?? 0)
     }
 
     func removeAll() async {
