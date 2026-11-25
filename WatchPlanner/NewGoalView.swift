@@ -348,7 +348,7 @@ struct NewGoalView: View {
             HStack(spacing: 12) {
                 KindIcon(kind: .race, size: 40)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(trimmedName).font(.headline)
+                    Text(goalName).font(.headline)
                     Text(hasDate ? "De grote dag: \(Format.day(dayString(bigDay)))" : "Geen vaste dag")
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -631,10 +631,7 @@ struct NewGoalView: View {
         let match = goalPresets.first { $0.title.lowercased() == value.lowercased() }
         ownName = match == nil
         name = match?.title ?? value
-        guard nameOK else {
-            composerError = trimmedName.isEmpty ? nil : "Er is al een doel met deze naam. Kies een andere naam."
-            return
-        }
+        guard nameOK else { return }
         composer = ""
         goNext()
     }
@@ -846,7 +843,20 @@ struct NewGoalView: View {
         .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
         .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(.white.opacity(0.08), lineWidth: 1))
     }
-    private var nameOK: Bool { !trimmedName.isEmpty && store.event(named: trimmedName) == nil }
+    private var nameOK: Bool { !trimmedName.isEmpty }
+
+    /// The name to save: made unique when that name is taken, with the big day or a number.
+    private var goalName: String {
+        let base = trimmedName
+        guard store.event(named: base) != nil else { return base }
+        if hasDate {
+            let withDay = "\(base) \(Format.shortDay(dayString(bigDay)).split(separator: " ").dropFirst().joined(separator: " "))"
+            if store.event(named: withDay) == nil { return withDay }
+        }
+        var n = 2
+        while store.event(named: "\(base) \(n)") != nil { n += 1 }
+        return "\(base) \(n)"
+    }
 
     private func dayString(_ d: Date) -> String {
         let c = Calendar.current.dateComponents([.year, .month, .day], from: d)
@@ -922,7 +932,7 @@ struct NewGoalView: View {
     private func create() {
         var workouts: [PlannedWorkout] = []
         if method != .later, case .success(let e) = result { workouts = e.workouts }
-        let goal = TrainingSchedule(name: trimmedName, defaultTime: "07:00", workouts: workouts,
+        let goal = TrainingSchedule(name: goalName, defaultTime: "07:00", workouts: workouts,
                                     raceDate: hasDate ? dayString(bigDay) : nil)
         do {
             try store.upsert(goal)
@@ -948,18 +958,18 @@ struct GoalPill: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
+            HStack(spacing: 6) {
                 if let icon {
                     Image(systemName: icon)
-                        .font(.body.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(isOn ? .black : Theme.accent)
                 }
                 Text(title)
-                    .font(.headline)
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(isOn ? .black : .primary)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 15)
+            .padding(.horizontal, 13)
+            .padding(.vertical, 9)
             .background(isOn ? Theme.accent : Theme.pill, in: Capsule())
             .overlay(Capsule().strokeBorder(.white.opacity(isOn ? 0 : 0.08), lineWidth: 1))
         }
