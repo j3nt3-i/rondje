@@ -1,0 +1,315 @@
+{
+  "name": "Devil's Trail 15 km",
+  "defaultTime": "07:00",
+  "workouts": [
+    {
+      "date": "2026-11-24",
+      "name": "Di rustig + versnellingen",
+      "warmup": {
+        "goal": {
+          "type": "distance",
+          "value": 6,
+          "unit": "km"
+        },
+        "zone": 2
+      },
+      "blocks": [
+        {
+          "iterations": 4,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "time",
+                "value": 20,
+                "unit": "sec"
+              }
+            },
+            {
+              "purpose": "recovery",
+              "goal": {
+                "type": "time",
+                "value": 90,
+                "unit": "sec"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ],
+      "cooldown": {
+        "goal": {
+          "type": "open"
+        }
+      }
+    },
+    {
+      "date": "2026-11-26",
+      "name": "Do 5x3 stevig",
+      "warmup": {
+        "goal": {
+          "type": "time",
+          "value": 10,
+          "unit": "min"
+        },
+        "zone": 2
+      },
+      "blocks": [
+        {
+          "iterations": 5,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "time",
+                "value": 3,
+                "unit": "min"
+              },
+              "zone": 4
+            },
+            {
+              "purpose": "recovery",
+              "goal": {
+                "type": "time",
+                "value": 2,
+                "unit": "min"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ],
+      "cooldown": {
+        "goal": {
+          "type": "open"
+        }
+      }
+    },
+    {
+      "date": "2026-11-29",
+      "name": "Zo duurloop 12 km",
+      "blocks": [
+        {
+          "iterations": 1,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "distance",
+                "value": 12,
+                "unit": "km"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-12-01",
+      "name": "Di heuvels",
+      "warmup": {
+        "goal": {
+          "type": "time",
+          "value": 15,
+          "unit": "min"
+        },
+        "zone": 2
+      },
+      "blocks": [
+        {
+          "iterations": 6,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "time",
+                "value": 45,
+                "unit": "sec"
+              }
+            },
+            {
+              "purpose": "recovery",
+              "goal": {
+                "type": "time",
+                "value": 90,
+                "unit": "sec"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ],
+      "cooldown": {
+        "goal": {
+          "type": "open"
+        }
+      }
+    },
+    {
+      "date": "2026-12-03",
+      "name": "Do 3x8 racetempo",
+      "warmup": {
+        "goal": {
+          "type": "time",
+          "value": 10,
+          "unit": "min"
+        },
+        "zone": 2
+      },
+      "blocks": [
+        {
+          "iterations": 3,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "time",
+                "value": 8,
+                "unit": "min"
+              },
+              "zone": 3
+            },
+            {
+              "purpose": "recovery",
+              "goal": {
+                "type": "time",
+                "value": 3,
+                "unit": "min"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ],
+      "cooldown": {
+        "goal": {
+          "type": "open"
+        }
+      }
+    },
+    {
+      "date": "2026-12-06",
+      "name": "Zo generale repetitie",
+      "blocks": [
+        {
+          "iterations": 1,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "distance",
+                "value": 13,
+                "unit": "km"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "date": "2026-12-08",
+      "name": "Di racetempo prikkel",
+      "warmup": {
+        "goal": {
+          "type": "distance",
+          "value": 3,
+          "unit": "km"
+        },
+        "zone": 2
+      },
+      "blocks": [
+        {
+          "iterations": 4,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "time",
+                "value": 1,
+                "unit": "min"
+              },
+              "zone": 3
+            },
+            {
+              "purpose": "recovery",
+              "goal": {
+                "type": "time",
+                "value": 2,
+                "unit": "min"
+              },
+              "zone": 2
+            }
+          ]
+        }
+      ],
+      "cooldown": {
+        "goal": {
+          "type": "open"
+        }
+      }
+    },
+    {
+      "date": "2026-12-10",
+      "name": "Do los lopen",
+      "warmup": {
+        "goal": {
+          "type": "distance",
+          "value": 4,
+          "unit": "km"
+        },
+        "zone": 1
+      },
+      "blocks": [
+        {
+          "iterations": 3,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "time",
+                "value": 20,
+                "unit": "sec"
+              }
+            },
+            {
+              "purpose": "recovery",
+              "goal": {
+                "type": "time",
+                "value": 90,
+                "unit": "sec"
+              },
+              "zone": 1
+            }
+          ]
+        }
+      ],
+      "cooldown": {
+        "goal": {
+          "type": "open"
+        }
+      }
+    },
+    {
+      "date": "2026-12-13",
+      "name": "Devil's Trail 15 km",
+      "blocks": [
+        {
+          "iterations": 1,
+          "steps": [
+            {
+              "purpose": "work",
+              "goal": {
+                "type": "distance",
+                "value": 15,
+                "unit": "km"
+              },
+              "zone": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
