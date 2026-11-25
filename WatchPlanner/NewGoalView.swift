@@ -559,9 +559,13 @@ struct NewGoalView: View {
     private func send() async {
         composerError = nil
         let t = typed
-        if let reply = correct(t) {
-            corrections.append(Correction(at: step, said: t, reply: reply))
-            composer = ""
+        if let fixed = correct(t) {
+            reply(t, fixed)
+            return
+        }
+        // "lopen?" is a question back, not an answer: explain instead of guessing.
+        if t.hasSuffix("?") {
+            reply(t, explain(step))
             return
         }
         switch step {
@@ -573,19 +577,19 @@ struct NewGoalView: View {
             trailUp = ""
         case .trail:
             var r = NewGoalView.trail(from: t)
-            if r.km == nil && r.up == nil {
+            if r.km == nil && r.up == nil && NewGoalView.mentionsNumber(t) {
                 let ai = await understand { await WorkoutAI.readTrail(t) }
                 r = (ai?.km.map { String(format: "%g", $0).replacingOccurrences(of: ".", with: ",") }, ai?.up.map(String.init))
             }
-            guard r.km != nil || r.up != nil else { composerError = "Dat snap ik niet. Typ bijv. 15 km, 400 hoogtemeters."; return }
+            guard r.km != nil || r.up != nil else { reply(t, explain(step)); return }
             trailKm = r.km ?? ""
             trailUp = r.up ?? ""
         case .date where NewGoalView.saysNo(t):
             hasDate = false
         case .date:
             var parsed = NewGoalView.date(from: t) ?? NewGoalView.dateInText(t)
-            if parsed == nil { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
-            guard let d = parsed else { composerError = "Die datum snap ik niet. Typ bijv. 13 december of 13-12-2026."; return }
+            if parsed == nil && NewGoalView.mentionsDate(t) { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
+            guard let d = parsed else { reply(t, explain(step)); return }
             bigDay = d
             hasDate = true
         case .method:
@@ -593,11 +597,11 @@ struct NewGoalView: View {
             if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
             else if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
             else if ["ja", "graag", "help", "maak", "ai", "claude", "chatgpt", "prima", "oké", "ok"].contains(where: l.contains) { method = .ai }
-            else { composerError = "Typ bijv. ja graag, ik heb er al een, of later."; return }
+            else { reply(t, explain(step)); return }
         case .perWeek:
             var parsed = NewGoalView.count(from: t)
-            if parsed == nil { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
-            guard let n = parsed, (1...7).contains(n) else { composerError = "Typ een aantal van 1 tot 7."; return }
+            if parsed == nil && NewGoalView.mentionsNumber(t) { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
+            guard let n = parsed, (1...7).contains(n) else { reply(t, explain(step)); return }
             perWeek = n
         case .level:
             level = t
@@ -658,6 +662,28 @@ struct NewGoalView: View {
         return nil
     }
 
+    /// Adds what you said and Rondje's answer to the chat, and stays on this question.
+    private func reply(_ said: String, _ answer: String) {
+        corrections.append(Correction(at: step, said: said, reply: answer))
+        composer = ""
+    }
+
+    /// What Rondje says when you ask back, or when your answer did not fit the question.
+    private func explain(_ s: Step) -> String {
+        switch s {
+        case .name: return "Waar je voor traint: een wedstrijd, een afstand, of gewoon fit blijven. Kies hierboven, of typ bijvoorbeeld Devil's Trail."
+        case .trail: return "Hoe lang je trail is en hoeveel hoogtemeters. Typ bijvoorbeeld 15 km, 400 hoogtemeters, of weet ik niet."
+        case .date: return "De dag van je wedstrijd of doel. Typ bijvoorbeeld 13 december, of nog geen datum."
+        case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Typ ja graag, ik heb er al een, of later."
+        case .perWeek: return "Ik bedoel: hoe vaak per week je wilt hardlopen. Typ bijvoorbeeld 3."
+        case .level: return "Hoe ver je nu kunt lopen, en hoe zwaar dat voelt. Bijvoorbeeld: 5 km lukt, maar het is zwaar."
+        case .aim: return "Wat je wilt halen, bijvoorbeeld uitlopen of een tijd neerzetten. Kies er een of meer, of typ het zelf."
+        case .wishes: return "Wensen voor je schema, bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
+        case .paste: return "Plak hier het hele antwoord van je AI-app, met alle trainingen erin."
+        default: return "Kies een van de knoppen hieronder."
+        }
+    }
+
     /// Shows Rondje typing while Apple Intelligence reads the answer.
     private func understand<T>(_ work: () async -> T) async -> T? {
         guard WorkoutAI.isAvailable else { return nil }
@@ -696,6 +722,21 @@ struct NewGoalView: View {
             if let r = l.range(of: p, options: .regularExpression), let d = date(from: String(l[r]), now: now) { return d }
         }
         return nil
+    }
+
+    /// Something that looks like a number: digits or a number word.
+    static func mentionsNumber(_ text: String) -> Bool {
+        let l = text.lowercased()
+        let words = ["een", "één", "twee", "drie", "vier", "vijf", "zes", "zeven", "acht", "negen", "tien", "elf", "twaalf",
+                     "vijftien", "twintig", "dertig", "veertig", "vijftig", "honderd", "dag", "keer"]
+        return l.contains(where: \.isNumber) || words.contains { l.range(of: #"\b\#($0)"#, options: .regularExpression) != nil }
+    }
+
+    /// Something that looks like a date: a number, a month or a weekday.
+    static func mentionsDate(_ text: String) -> Bool {
+        let l = text.lowercased()
+        return l.contains(where: \.isNumber) || (months + weekdays).contains { l.contains($0.prefix(3)) }
+            || ["morgen", "week", "maand", "kerst", "pasen", "zomer", "winter", "voorjaar", "najaar"].contains(where: l.contains)
     }
 
     /// "weet ik niet", "nog geen datum", "nee" -> true

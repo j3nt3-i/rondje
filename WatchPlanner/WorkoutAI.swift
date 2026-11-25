@@ -125,9 +125,10 @@ enum WorkoutAI {
     static func readCount(_ text: String) async -> Int? {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, macOS 26.0, *), isAvailable {
-            let prompt = "The runner answered the question 'How many times per week do you want to run?' with: \"\(text)\". How many times per week? If they give a range, take the lower number."
-            return try? await LanguageModelSession().respond(to: prompt, generating: GenCount.self,
-                                                             options: GenerationOptions(temperature: 0)).content.timesPerWeek
+            let prompt = "The runner answered the question 'How many times per week do you want to run?' with: \"\(text)\". How many times per week? If they give a range, take the lower number. If the answer holds no number of runs, give 0."
+            let n = try? await LanguageModelSession().respond(to: prompt, generating: GenCount.self,
+                                                              options: GenerationOptions(temperature: 0)).content.timesPerWeek
+            return n.flatMap { $0 > 0 ? $0 : nil }
         }
         #endif
         return nil
@@ -213,7 +214,7 @@ struct GenDate {
 @available(iOS 26.0, macOS 26.0, *)
 @Generable
 struct GenCount {
-    @Guide(description: "Runs per week", .range(1...7))
+    @Guide(description: "Runs per week, or 0 when the answer holds no number", .range(0...7))
     var timesPerWeek: Int
 }
 
