@@ -137,13 +137,15 @@ struct NewGoalView: View {
             }
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 ForEach(goalPresets, id: \.title) { g in
-                    goalTile(g.icon, g.title, g.sub, !ownName && name == g.title) {
+                    GoalTile(icon: g.icon, hero: g.hero, title: g.title, sub: g.sub, color: g.color,
+                             isOn: !ownName && name == g.title) {
                         ownName = false
                         name = g.title
                         nameFocused = false
                     }
                 }
-                goalTile("pencil", "Anders, namelijk...", "Bijv. je eigen wedstrijd", ownName) {
+                GoalTile(icon: "plus", hero: nil, title: "Anders, namelijk...", sub: "Je eigen wedstrijd", color: Color(white: 0.6),
+                         isOn: ownName, dashed: true) {
                     if !ownName { name = "" }
                     ownName = true
                     nameFocused = true
@@ -426,40 +428,15 @@ struct NewGoalView: View {
         ("Langer dan 10 km", "Ik loop regelmatig lange afstanden"),
     ]
 
-    private let goalPresets: [(icon: String, title: String, sub: String)] = [
-        ("figure.run", "5 km", "Je eerste of snelste 5"),
-        ("figure.run", "10 km", "Een mooie klassieker"),
-        ("medal", "Halve marathon", "21,1 km"),
-        ("trophy", "Marathon", "42,2 km"),
-        ("mountain.2", "Trailrun", "Onverhard en heuvels"),
-        ("sparkles", "Beginnen met hardlopen", "Rustig opbouwen"),
-        ("heart", "Fit blijven", "Zonder wedstrijd"),
+    private let goalPresets: [(icon: String, hero: String?, title: String, sub: String, color: Color)] = [
+        ("figure.run", "5", "5 km", "Je eerste of snelste", .cyan),
+        ("figure.run", "10", "10 km", "Een mooie klassieker", .green),
+        ("medal.fill", "21,1", "Halve marathon", "Uitdaging", .orange),
+        ("trophy.fill", "42,2", "Marathon", "De grote", .pink),
+        ("mountain.2.fill", nil, "Trailrun", "Onverhard en heuvels", .yellow),
+        ("sparkles", nil, "Beginnen met hardlopen", "Rustig opbouwen", .purple),
+        ("heart.fill", nil, "Fit blijven", "Zonder wedstrijd", .red),
     ]
-
-    private func goalTile(_ icon: String, _ title: String, _ sub: String, _ isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Image(systemName: icon)
-                        .font(.title3)
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 40, height: 40)
-                        .background(Theme.accent.opacity(0.15), in: Circle())
-                    Spacer()
-                    if isOn {
-                        Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.accent)
-                    }
-                }
-                Text(title).font(.headline).foregroundStyle(.primary).lineLimit(2).minimumScaleFactor(0.85)
-                Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 132, alignment: .topLeading)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(isOn ? Theme.accent : .clear, lineWidth: 2))
-        }
-        .buttonStyle(.plain)
-    }
 
     private func option(_ icon: String?, _ title: String, _ text: String?, _ isOn: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
@@ -620,6 +597,88 @@ struct NewGoalView: View {
             Task { await planner.put(workouts, time: goal.defaultTime, title: "\(goal.name) toegevoegd", events: store.events) }
         }
         dismiss()
+    }
+}
+
+// MARK: - Goal tile
+
+/// A playful, colored tile for picking a goal: a big number or icon, a soft gradient,
+/// a little bounce when pressed, and a lime ring when chosen.
+struct GoalTile: View {
+    let icon: String
+    let hero: String?
+    let title: String
+    let sub: String
+    let color: Color
+    let isOn: Bool
+    var dashed = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top) {
+                    if let hero {
+                        HStack(alignment: .firstTextBaseline, spacing: 3) {
+                            Text(hero).font(.system(size: 40, weight: .heavy, design: .rounded))
+                            Text("km").font(.system(size: 15, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(color)
+                    } else {
+                        Image(systemName: icon)
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(color)
+                            .frame(width: 50, height: 50)
+                            .background(color.opacity(0.2), in: Circle())
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(isOn ? Theme.accent : color.opacity(0.4))
+                }
+                Spacer(minLength: 0)
+                // "5 km" already shows big; then the short line becomes the title.
+                let repeatsHero = hero.map { title.hasPrefix($0 + " ") } ?? false
+                Text(repeatsHero ? sub : title)
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                if !repeatsHero {
+                    Text(sub)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
+            .background(
+                LinearGradient(colors: [color.opacity(dashed ? 0.08 : 0.32), color.opacity(0.06)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: RoundedRectangle(cornerRadius: 22)
+            )
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 22))
+            .overlay {
+                RoundedRectangle(cornerRadius: 22)
+                    .strokeBorder(isOn ? Theme.accent : color.opacity(0.45),
+                                  style: StrokeStyle(lineWidth: isOn ? 3 : 1.5, dash: dashed && !isOn ? [7, 5] : []))
+            }
+            .scaleEffect(isOn ? 1.02 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isOn)
+        }
+        .buttonStyle(BounceStyle())
+        .accessibilityLabel("\(title), \(sub)")
+        .accessibilityAddTraits(isOn ? .isSelected : [])
+    }
+}
+
+/// Shrinks a little while pressed.
+struct BounceStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
     }
 }
 
