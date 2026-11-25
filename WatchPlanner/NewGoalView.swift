@@ -98,7 +98,7 @@ struct NewGoalView: View {
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
             .safeAreaInset(edge: .bottom) {
-                if !botTyping && !streaming && step != .method {
+                if dockReady {
                     dock
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
@@ -166,20 +166,25 @@ struct NewGoalView: View {
     }
 
     private func goNext() {
-        hideKeyboard()
         guard let i = path.firstIndex(of: step), i + 1 < path.count else { return }
         step = path[i + 1]
+        keepKeyboardOnlyWhenTyping()
     }
 
     private func goBack() {
-        hideKeyboard()
         guard let i = path.firstIndex(of: step), i > 0 else { return }
         step = path[i - 1]
+        keepKeyboardOnlyWhenTyping()
     }
 
     private func jump(to s: Step) {
-        hideKeyboard()
         step = s
+        keepKeyboardOnlyWhenTyping()
+    }
+
+    /// The keyboard stays open between questions; it only closes for button steps.
+    private func keepKeyboardOnlyWhenTyping() {
+        if !typingStep { hideKeyboard() }
     }
 
     // MARK: - The conversation
@@ -429,9 +434,6 @@ struct NewGoalView: View {
                     .font(.subheadline.bold())
             }
 
-        case .method:
-            EmptyView()
-
         case .review:
             bigButton("Maak doel", "checkmark") { create() }
                 .disabled(!canCreate)
@@ -446,13 +448,13 @@ struct NewGoalView: View {
                     TextField(placeholder, text: $composer, axis: .vertical)
                         .focused($composerFocused)
                         .submitLabel(.send)
-                        .onSubmit { if canSend { Task { await send() } } }
+                        .onSubmit { if canSend && !botTyping && !streaming { Task { await send() } } }
                         .lineLimit(1...(step == .paste ? 8 : 4))
                         .padding(.horizontal, 16).padding(.vertical, 12)
                         .background(Theme.pill, in: RoundedRectangle(cornerRadius: 22))
                         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.08), lineWidth: 1))
                         .onChange(of: composer) { composerError = nil }
-                    sendButton(enabled: canSend && !understanding) { Task { await send() } }
+                    sendButton(enabled: canSend && !understanding && !botTyping && !streaming) { Task { await send() } }
                 }
             }
         }
@@ -529,7 +531,7 @@ struct NewGoalView: View {
         case .name: return "Of typ je eigen doel, bijv. Devil's Trail"
         case .trail: return "Bijv. 15 km, 400 hoogtemeters"
         case .date: return "Bijv. 13 december"
-        case .method: return "Kies hierboven"
+        case .method: return "Kies hierboven, of typ bijv. ja graag"
         case .perWeek: return "Bijv. 4"
         case .level: return "Of vertel het zelf, bijv. 2x per week 6 km"
         case .aim: return aims.contains("Een tijd neerzetten") ? "Welke tijd? Bijv. 1:55" : "Kies hierboven, of typ het zelf"
@@ -542,9 +544,15 @@ struct NewGoalView: View {
     /// Steps answered in the chat field; the others are buttons.
     private var typingStep: Bool {
         switch step {
-        case .copy, .openApp, .review, .method: return false
+        case .copy, .openApp, .review: return false
         default: return true
         }
+    }
+
+    /// The chat field stays put while Rondje types, so the keyboard does not close and reopen.
+    /// Button steps show their buttons once the question is there.
+    private var dockReady: Bool {
+        typingStep || (!botTyping && !streaming)
     }
 
     private var typed: String { composer.trimmingCharacters(in: .whitespacesAndNewlines) }
