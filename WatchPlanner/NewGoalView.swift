@@ -54,6 +54,15 @@ struct NewGoalView: View {
     @State private var composerError: String?
     @State private var understanding = false
     @FocusState private var composerFocused: Bool
+    /// Things you corrected along the way ("eigenlijk 15 december") and what Rondje changed.
+    @State private var corrections: [Correction] = []
+
+    private struct Correction: Identifiable {
+        let id = UUID()
+        let at: Step   // the question you were on when you said it
+        let said: String
+        let reply: String
+    }
 
     // Schedule text and how it reads
     @State private var text = ""
@@ -72,6 +81,7 @@ struct NewGoalView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         ForEach(pastSteps, id: \.self) { s in
                             botBubble(question(s))
+                            correctionBubbles(at: s)
                             userBubble(answer(s)) { jump(to: s) }
                         }
                         if botTyping || understanding {
@@ -80,6 +90,7 @@ struct NewGoalView: View {
                             botBubble(streamed)
                         } else {
                             botBubble(question(step))
+                            correctionBubbles(at: step)
                             suggestions
                                 .transition(.opacity)
                             stepCard
@@ -287,6 +298,15 @@ struct NewGoalView: View {
             }
             .buttonStyle(BounceStyle())
             .accessibilityHint("Tik om dit antwoord te veranderen")
+        }
+    }
+
+    /// Corrections you made while on this question, and what Rondje changed.
+    @ViewBuilder
+    private func correctionBubbles(at s: Step) -> some View {
+        ForEach(corrections.filter { $0.at == s }) { c in
+            userBubble(c.said) {}
+            botBubble(c.reply)
         }
     }
 
@@ -539,6 +559,11 @@ struct NewGoalView: View {
     private func send() async {
         composerError = nil
         let t = typed
+        if let reply = correct(t) {
+            corrections.append(Correction(at: step, said: t, reply: reply))
+            composer = ""
+            return
+        }
         switch step {
         case .name:
             answerName(t, preset: false)
@@ -558,7 +583,7 @@ struct NewGoalView: View {
         case .date where NewGoalView.saysNo(t):
             hasDate = false
         case .date:
-            var parsed = NewGoalView.date(from: t)
+            var parsed = NewGoalView.date(from: t) ?? NewGoalView.dateInText(t)
             if parsed == nil { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
             guard let d = parsed else { composerError = "Die datum snap ik niet. Typ bijv. 13 december of 13-12-2026."; return }
             bigDay = d
@@ -598,6 +623,41 @@ struct NewGoalView: View {
         goNext()
     }
 
+    /// "Oeps, het is eigenlijk 15 december": changes an earlier answer and stays on this question.
+    /// Returns what Rondje says back, or nil when this is not a correction of an earlier answer.
+    private func correct(_ t: String) -> String? {
+        let l = t.lowercased()
+        let markers = ["eigenlijk", "oeps", "verkeerd", "foutje", "toch", "sorry", "verander", "moet zijn"]
+        guard markers.contains(where: l.contains) else { return nil }
+        let done = Set(pastSteps)
+
+        if done.contains(.date), let d = NewGoalView.dateInText(t) {
+            bigDay = d
+            hasDate = true
+            return "Aangepast: de grote dag is nu \(Format.day(dayString(d)).lowercased())."
+        }
+        if done.contains(.perWeek), l.contains("week"), let n = NewGoalView.count(from: t), (1...7).contains(n) {
+            perWeek = n
+            return "Aangepast: \(n)x per week."
+        }
+        if done.contains(.trail), isTrail {
+            let r = NewGoalView.trail(from: t)
+            if r.km != nil || r.up != nil {
+                if let km = r.km { trailKm = km }
+                if let up = r.up { trailUp = up }
+                return "Aangepast: \(answer(.trail))."
+            }
+        }
+        if done.contains(.name), let m = l.range(of: #"(?:heet|naam is|noem het)\s+(?:eigenlijk\s+)?"#, options: .regularExpression) {
+            let new = String(t[m.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            guard !new.isEmpty else { return nil }
+            ownName = goalPresets.first { $0.title.lowercased() == new.lowercased() } == nil
+            name = goalPresets.first { $0.title.lowercased() == new.lowercased() }?.title ?? new
+            return "Aangepast: je doel heet nu \(trimmedName)."
+        }
+        return nil
+    }
+
     /// Shows Rondje typing while Apple Intelligence reads the answer.
     private func understand<T>(_ work: () async -> T) async -> T? {
         guard WorkoutAI.isAvailable else { return nil }
@@ -622,6 +682,21 @@ struct NewGoalView: View {
     private static let numberWords: [(String, Int)] = [
         ("een", 1), ("één", 1), ("twee", 2), ("drie", 3), ("vier", 4), ("vijf", 5), ("zes", 6), ("zeven", 7),
     ]
+
+    /// Finds a date inside a sentence: "oeps, het is eigenlijk 15 december".
+    /// Only explicit dates count here, not a loose weekday ("lange duurloop toch op zondag").
+    static func dateInText(_ text: String, now: Date = .now) -> Date? {
+        let l = text.lowercased()
+        let patterns = [
+            #"\b\d{1,2}\s+(?:jan|feb|mrt|maa|apr|mei|jun|jul|aug|sep|okt|nov|dec)[a-z]*(?:\s+\d{4})?"#,
+            #"\b\d{1,2}[-/]\d{1,2}(?:[-/]\d{4})?\b"#,
+            #"\b(?:begin|half|midden|eind)\s+[a-z]+"#,
+        ]
+        for p in patterns {
+            if let r = l.range(of: p, options: .regularExpression), let d = date(from: String(l[r]), now: now) { return d }
+        }
+        return nil
+    }
 
     /// "weet ik niet", "nog geen datum", "nee" -> true
     static func saysNo(_ text: String) -> Bool {
