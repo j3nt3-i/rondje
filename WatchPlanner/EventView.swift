@@ -152,8 +152,9 @@ struct EventView: View {
                 add(workout, to: event, planNow: planNow)
             }
         }
-        .confirmationDialog("\(event.name) verwijderen?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Verwijder doel", role: .destructive) { deleteEvent(event) }
+        .alert("\(event.name) verwijderen?", isPresented: $confirmDelete) {
+            Button("Verwijder", role: .destructive) { deleteEvent(event) }
+            Button("Annuleer", role: .cancel) {}
         } message: {
             Text("Alle trainingen van dit doel gaan weg, ook van je Watch.")
         }
