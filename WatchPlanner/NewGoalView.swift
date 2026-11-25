@@ -592,8 +592,10 @@ struct NewGoalView: View {
                 return
             }
         }
+        let here = step
         if let fixed = correct(t) {
-            reply(t, fixed)
+            // Changed in place: ask the open question again, so the chat carries on.
+            reply(t, step == here ? "\(fixed) \(ask(step))" : fixed)
             return
         }
         // "lopen?" is a question back, not an answer: explain instead of guessing.
@@ -617,7 +619,7 @@ struct NewGoalView: View {
         // A change to an earlier answer. Without a usable new value, ask that question again.
         if gives, let target, target != step, pastSteps.contains(target) {
             if let said = await understand({ await change(target, to: [turn.value, t]) }) ?? nil {
-                reply(t, said)
+                reply(t, "\(said) \(ask(step))")
             } else {
                 jump(to: target)
                 reply(t, "Geen probleem, dan pas ik dat aan.")
