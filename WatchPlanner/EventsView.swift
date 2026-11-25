@@ -11,6 +11,7 @@ struct EventsView: View {
     @State private var showNewEvent = false
     @State private var newEventName = ""
     @State private var error: Message?
+    @State private var confirmClear = false
 
     var body: some View {
         @Bindable var planner = planner
@@ -52,11 +53,22 @@ struct EventsView: View {
                     }
                     ForEach(planner.watchItems) { item in
                         watchRow(item)
+                            .swipeActions {
+                                Button("Haal weg", systemImage: "applewatch.slash", role: .destructive) {
+                                    Task { await planner.removeFromWatch(item, events: store.events) }
+                                }
+                            }
+                    }
+                    if !planner.watchItems.isEmpty {
+                        Button("Haal alles van je Watch", systemImage: "applewatch.slash", role: .destructive) {
+                            confirmClear = true
+                        }
+                        .foregroundStyle(.red)
                     }
                 } header: {
                     Text("Op je Watch")
                 } footer: {
-                    Text("Alleen trainingen die deze app heeft ingepland. Andere apps zie je hier niet.")
+                    Text("Veeg naar links om een training van je Watch te halen. Hij blijft in je event staan, dus bij Plan op Watch komt hij terug. Je ziet hier alleen trainingen van deze app.")
                 }
             }
             .navigationTitle("Rondje")
@@ -84,6 +96,13 @@ struct EventsView: View {
             }
             .safeAreaInset(edge: .bottom) { PlanButton() }
             .sheet(isPresented: $showImport) { ImportView() }
+            .confirmationDialog("Alles van je Watch halen?", isPresented: $confirmClear, titleVisibility: .visible) {
+                Button("Haal alles weg", role: .destructive) {
+                    Task { await planner.clearWatch(events: store.events) }
+                }
+            } message: {
+                Text("Je events blijven staan. Met Plan op Watch zet je ze er weer op.")
+            }
             .alert("Nieuw event", isPresented: $showNewEvent) {
                 TextField("Naam, bijvoorbeeld Zevenheuvelenloop", text: $newEventName)
                 Button("Annuleer", role: .cancel) {}

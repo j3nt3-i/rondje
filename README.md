@@ -49,7 +49,7 @@ Write workouts the way you would say them. The app rewrites the text to its own 
 What it understands:
 
 - Warm-up: `inlopen`, `warming-up`, `warm`. Cool-down: `uitlopen`, `cooling-down`, `naar huis`, `in- en uitlopen 2 km`.
-- Repeats: `5 keer`, `5x`, `5x3 min`, `6 versnellingen van 20 sec`, with the rest after `met`, `/` or in the next part (`2 min dribbelen ertussen`).
+- Repeats: `5 keer`, `5x`, `5x3 min`, `6 versnellingen van 20 sec`, with the rest after `met`, `/` or in the next part (`2 min dribbelen ertussen`). The count may also come after the steps (`3 min hard, 2 min zacht, herhaal 3x`, `en dat 4 keer`) or before them on its own line (`herhaal 5x:`).
 - Units: sec, min, uur, kwartier, half uur, km, m, meter, 5k.
 - Zones: `z2` or `zone 2`, or from words: rustig/duurloop 2, tempo/racetempo 3, stevig/hard/drempel 4, sprint 5.
 - Lines without time or distance (rest days, notes, intros) are skipped. Markdown and bullets are ignored.
@@ -66,7 +66,7 @@ warmup 10 min z2
 cooldown
 ```
 
-"Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. "Op je Watch" on the home screen lists what WorkoutKit reports as scheduled (only this app's workouts).
+"Plan op Watch" replaces everything this app put on the Watch with the upcoming workouts of all events, earliest first, up to WorkoutKit's limit. "Op je Watch" on the home screen lists what WorkoutKit reports as scheduled (only this app's workouts). Swipe one to take it off the Watch, or use "Haal alles van je Watch". The workouts stay in their events, so "Plan op Watch" puts them back.
 
 ## Check that it worked
 

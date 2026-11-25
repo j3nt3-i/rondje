@@ -45,22 +45,23 @@ struct AddWorkoutView: View {
                                     .allowsHitTesting(false)
                             }
                         }
+                    if text.isEmpty {
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack {
+                                ForEach(examples) { ex in
+                                    Button(ex.title, systemImage: "sparkle") { text = ex.text }
+                                        .font(.footnote)
+                                        .buttonStyle(.bordered)
+                                        .buttonBorderShape(.capsule)
+                                        .tint(Theme.accent)
+                                }
+                            }
+                        }
+                    }
                 } header: {
                     Text("Beschrijf je training")
                 } footer: {
                     Text("Schrijf het op zoals je het zou zeggen. Rustig, tempo, hard en sprint worden hartslagzones, en je kunt ook zelf een zone noemen, zoals z2.")
-                }
-
-                Section("Voorbeelden") {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack {
-                            ForEach(examples) { ex in
-                                Button(ex.title) { text = ex.text }
-                                    .buttonStyle(.bordered)
-                                    .tint(Theme.accent)
-                            }
-                        }
-                    }
                 }
 
                 if let result {

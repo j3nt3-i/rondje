@@ -96,35 +96,78 @@ enum WorkoutText {
         s = replace(s, #"(\d),(\d)"#, "$1.$2")
         for (pattern, template) in wordRules { s = replace(s, pattern, template) }
         s = hoursToMinutes(s)
+        s = replace(s, #"[,;](?=[^()\n]*\))"#, " /") // "5x (3 min, 2 min)" stays one repeat
 
         let separators = #"\n|;|,|\.(?:\s|$)|\s+(?:en\s+)?(?:dan|daarna|vervolgens|gevolgd door|afsluiten met|eindigen met)\s+"#
         var lines: [String] = []
+        // "herhaal 5x:" followed by the steps: collect them until something else comes.
+        var pending: (count: Int, steps: [String])?
+
+        func flush() {
+            if let p = pending, !p.steps.isEmpty { lines.append("\(p.count)x " + p.steps.joined(separator: " / ")) }
+            pending = nil
+        }
+        func isPlain(_ line: String) -> Bool {
+            !line.hasPrefix("warmup") && !line.hasPrefix("cooldown") && line.range(of: #"^\d+x "#, options: .regularExpression) == nil
+        }
+
         for raw in split(s, separators) {
             var seg = clean(raw)
             seg = replace(seg, #"^(?:en|eerst|begin met|starten met|tot slot|als laatste|afsluitend)\s+"#, "")
             if seg.isEmpty { continue }
 
+            if let n = repeatCount(seg) {
+                // "3 min hard, 2 min zacht, herhaal 3x": wrap the steps just before it.
+                flush()
+                var tail: [String] = []
+                while let last = lines.last, isPlain(last) { tail.insert(lines.removeLast(), at: 0) }
+                if tail.isEmpty {
+                    pending = (n, [])
+                } else {
+                    lines.append("\(n)x " + tail.joined(separator: " / "))
+                }
+                continue
+            }
+
             let isRepeat = match(#"(\d+)\s*x\s*"#, seg) != nil
             if let wu = removing(warmupWords, from: seg), !isRepeat {
+                flush()
                 lines.append("warmup " + wu)
             } else if let cd = removing(cooldownWords, from: seg), !isRepeat {
+                flush()
                 lines.append("cooldown " + cd)
             } else if let m = match(#"(\d+)\s*x\s*(.+)$"#, seg) {
-                let body = replace(m[2], #"\s+(?:met|en|plus|afgewisseld met)\s+"#, " / ")
+                flush()
+                var body = replace(m[2], #"\s+(?:met|en|plus|afgewisseld met)\s+"#, " / ")
+                // "3 min hard 2 min zacht" has two steps without a separator.
+                body = replace(body, #"(\d+(?:\.\d+)?\s*(?:km|min|sec|m|s|k)\b[^/\d]*?)\s+(?=\d)"#, "$1 / ")
                 lines.append("\(m[1])x \(body)")
-            } else if match(recoveryWords, seg) != nil, let last = lines.last, last.range(of: #"^\d+x "#, options: .regularExpression) != nil {
-                // "5x 3 min hard, 2 min rust ertussen": the rest belongs to the repeat.
-                lines[lines.count - 1] = last + " / " + seg
             } else if seg.contains(where: \.isNumber) || seg.contains("open") {
-                lines.append(seg)
+                if pending != nil {
+                    pending?.steps.append(seg)
+                } else if match(recoveryWords, seg) != nil, let last = lines.last, !isPlain(last), last.first?.isNumber == true {
+                    // "5x 3 min hard, 2 min rust ertussen": the rest belongs to the repeat.
+                    lines[lines.count - 1] = last + " / " + seg
+                } else {
+                    lines.append(seg)
+                }
             }
             // Anything else ("lekker genieten!") is a note and is skipped.
         }
+        flush()
         return lines
     }
 
+    /// "herhaal 3x", "repeat 3 x", "en dat 4x", "5x herhalen": a count without a time or distance.
+    private static func repeatCount(_ seg: String) -> Int? {
+        let m = match(#"\b(?:herhaal|herhalen|repeat|repeats)\b\D*?(\d+)"#, seg) ?? match(#"(\d+)\s*x\b"#, seg)
+        guard let m, let n = Int(m[1]), (1...99).contains(n) else { return nil }
+        let rest = seg.replacingOccurrences(of: m[0], with: " ")
+        return rest.contains(where: \.isNumber) ? nil : n
+    }
+
     private static let wordRules: [(String, String)] = [
-        (#"(\d+)\s*(?:keer|maal|×)"#, "$1x"),
+        (#"(\d+)\s*(?:keer|maal|×|times)\b"#, "$1x"),
         (#"(\d+)\s*x(?=\d)"#, "$1x "),
         (#"(\d+)\s+(?:versnellingen|sprintjes|sprints|strides|herhalingen|stukken|stukjes|blokken|intervallen|heuveltjes|heuvels|reps)\b\s*(?:van\s+)?"#, "$1x "),
         (#"\banderhalf\s*uur(?:tje)?\b"#, "90 min"),
@@ -142,7 +185,7 @@ enum WorkoutText {
 
     private static let warmupWords = #"\b(?:warming[- ]?up|warmup|inlopen|inloop|warm\s?lopen|opwarmen|warm|wu)\b"#
     private static let cooldownWords = #"\b(?:cooling[- ]?down|cooldown|uitlopen|uitloop|uitdribbelen|cd|(?:terug\s+)?naar\s+huis)\b"#
-    private static let recoveryWords = #"\b(?:rust|pauze|dribbel\w*|wandel\w*|herstel\w*|jog\w*|ertussen|tussendoor)\b"#
+    private static let recoveryWords = #"\b(?:rust|pauze|dribbel\w*|wandel\w*|herstel\w*|jog\w*|zacht\w*|langzaam|sloom|uitblazen|ertussen|tussendoor)\b"#
 
     private static func hoursToMinutes(_ s: String) -> String {
         var s = s
@@ -427,7 +470,7 @@ enum WorkoutText {
         if match(#"\b(?:sprint\w*|maximaal|alles)\b"#, s) != nil { return 5 }
         if match(#"\b(?:stevig|drempel\w*|hard|snel|threshold)\b"#, s) != nil { return 4 }
         if match(#"\b(?:tempo|racetempo|duurtempo|matig)\b"#, s) != nil { return 3 }
-        if match(#"\b(?:rustig\w*|easy|duurloop|ontspannen|kalm|lsd)\b"#, s) != nil { return 2 }
+        if match(#"\b(?:rustig\w*|zacht\w*|langzaam|easy|duurloop|ontspannen|kalm|lsd)\b"#, s) != nil { return 2 }
         return nil
     }
 

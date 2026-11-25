@@ -9,7 +9,7 @@ final class Planner {
     var isBusy = false
     var message: Message?
 
-    private let service = ScheduleService()
+    fileprivate let service = ScheduleService()
 
     var onWatchIDs: Set<String> { Set(watchItems.compactMap(\.workoutID)) }
 
@@ -34,6 +34,18 @@ final class Planner {
         for w in workouts where onWatchIDs.contains(w.id) {
             await service.remove(w, time: time)
         }
+        await refresh(events)
+    }
+}
+
+extension Planner {
+    func removeFromWatch(_ item: WatchItem, events: [TrainingSchedule]) async {
+        await service.remove(item)
+        await refresh(events)
+    }
+
+    func clearWatch(events: [TrainingSchedule]) async {
+        await service.removeAll()
         await refresh(events)
     }
 }
