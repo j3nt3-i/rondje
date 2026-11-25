@@ -255,8 +255,8 @@ struct WorkoutRow: View {
             return ("Bij workouts", Theme.accent)
         }
         guard onWatch == true else { return nil }
-        if let from = ScheduleDates.watchVisibleFrom(workout.date) {
-            return ("vanaf \(Format.shortDay(from).lowercased())", .secondary)
+        if ScheduleDates.watchVisibleFrom(workout.date) != nil {
+            return ("Toegevoegd", Theme.accent)
         }
         return ("Op Watch", Theme.accent)
     }

@@ -66,13 +66,13 @@ warmup 10 min z2
 cooldown
 ```
 
-In an event, each workout shows "Op Watch", or "vanaf <day>" when it shows up on the Watch later (the Watch shows the coming 7 days). Each week that is not fully on the Watch has a button "Voeg week toe". To take one workout off the Watch, swipe it left and tap "Van Watch".
+In an event, each workout shows "Toegevoegd" once it is scheduled, and "Op Watch" on its day (the Watch shows a scheduled workout in the Workout app on its own day; the Watch app on the iPhone lists the coming 7 days). Each week that is not fully on the Watch has a button "Voeg week toe". To take one workout off the Watch, swipe it left and tap "Van Watch".
 
 In a workout, "Voeg toe aan je workouts" opens Apple's preview; adding there puts it straight in your own workouts on the Watch, without a date. Apple does not tell the app whether you tapped add, so it asks afterwards; then the list shows "Bij workouts".
 
 
 ## Check that it worked
 
-- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with the workouts of the coming 7 days. Later ones show up by themselves.
-- In the app: each workout in an event shows "Op Watch" or "Toegevoegd, op Watch vanaf <day>" once the iPhone handed it to WorkoutKit. The app cannot see the Watch itself.
+- On the Watch: open the Workout app. At the top there is a block for this app (Rondje) with today's workout; each scheduled workout appears there on its own day. The Watch app on the iPhone shows what is scheduled for the coming 7 days.
+- In the app: each workout in an event shows "Toegevoegd" or "Op Watch" once the iPhone handed it to WorkoutKit. The app cannot see the Watch itself.
 - If nothing shows up: keep the Watch unlocked and near the iPhone, check the Watch runs watchOS 10 or later, and check that scheduling is allowed in the Watch app on the iPhone (Workout settings).

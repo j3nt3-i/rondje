@@ -36,7 +36,7 @@ struct WorkoutDetailView: View {
                     }
                     if planner.onWatchIDs.contains(workout.id) {
                         Label(ScheduleDates.watchVisibleFrom(workout.date).map {
-                                  "Toegevoegd, op je Watch vanaf \(Format.shortDay($0).lowercased())"
+                                  "Toegevoegd, verschijnt \(Format.shortDay($0).lowercased()) op je Watch"
                               } ?? "Staat op je Watch",
                               systemImage: "applewatch")
                             .font(.subheadline)
