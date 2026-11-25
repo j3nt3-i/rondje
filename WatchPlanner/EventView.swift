@@ -14,12 +14,6 @@ struct EventView: View {
     @State private var confirmDelete = false
     @State private var message: Message?
 
-    // Sending workouts without a date, one Apple preview at a time.
-    @State private var sendQueue: [PlannedWorkout] = []
-    @State private var sendTotal = 0
-    @State private var showSend = false
-    @State private var confirmSend = false
-
     var body: some View {
         Group {
             if let event = store.event(named: eventName) {
@@ -66,10 +60,6 @@ struct EventView: View {
         .toolbar {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 Menu {
-                    Button("Stuur alles naar Watch", systemImage: "applewatch.and.arrow.forward") {
-                        confirmSend = true
-                    }
-                    .disabled(upcoming(event).isEmpty)
                     Button("Kopieer als tekst", systemImage: "doc.on.doc") {
                         UIPasteboard.general.string = WorkoutText.programText(for: event)
                         message = Message(title: "Gekopieerd",
@@ -92,68 +82,11 @@ struct EventView: View {
                 add(workout, to: event, planNow: planNow)
             }
         }
-        .confirmationDialog("Stuur \(upcoming(event).count) trainingen naar je Watch?", isPresented: $confirmSend, titleVisibility: .visible) {
-            Button("Start") { startSending(upcoming(event)) }
-        } message: {
-            Text("Ze komen zonder datum bij je eigen workouts onder Hardlopen buiten, en blijven daar staan. Je krijgt per training het venster van Apple: tik daar op toevoegen, en daarna onderaan op Volgende.")
-        }
-        .workoutPreview(WorkoutBuilder.plan(for: sendQueue.first ?? placeholder), isPresented: $showSend)
-        .onChange(of: showSend) { _, shown in
-            if !shown, !sendQueue.isEmpty { sendQueue.removeFirst() }
-            if !shown, sendQueue.isEmpty, sendTotal > 0 {
-                message = Message(title: "Klaar", text: "Kijk op je Watch in Workout, bij Hardlopen buiten. Je eigen workouts staan onder de ... knop.")
-                sendTotal = 0
-            }
-        }
-        .safeAreaInset(edge: .bottom) {
-            if !sendQueue.isEmpty && !showSend { sendBar }
-        }
         .confirmationDialog("\(event.name) verwijderen?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Verwijder event", role: .destructive) { deleteEvent(event) }
         } message: {
             Text("Alle trainingen van dit event gaan weg, ook van je Watch.")
         }
-    }
-
-    // MARK: - Send without date
-
-    private func upcoming(_ event: TrainingSchedule) -> [PlannedWorkout] {
-        event.workouts.filter { !ScheduleDates.isPast($0.date) }
-    }
-
-    private var placeholder: PlannedWorkout {
-        PlannedWorkout(date: "2026-01-01", name: "", warmup: nil, blocks: [], cooldown: nil)
-    }
-
-    private func startSending(_ workouts: [PlannedWorkout]) {
-        sendQueue = workouts
-        sendTotal = workouts.count
-        showSend = true
-    }
-
-    private var sendBar: some View {
-        let done = sendTotal - sendQueue.count
-        return HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("\(done) van \(sendTotal) gedaan")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Volgende: \(sendQueue.first?.name ?? "")")
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
-            }
-            Spacer()
-            Button("Stop") {
-                sendQueue = []
-                sendTotal = 0
-            }
-            .buttonStyle(.bordered)
-            Button("Volgende") { showSend = true }
-                .buttonStyle(.borderedProminent)
-                .foregroundStyle(.black)
-        }
-        .padding()
-        .background(.bar)
     }
 
     // MARK: - Week header
