@@ -10,13 +10,10 @@ struct NewEventView: View {
     @Environment(Planner.self) private var planner
     @Environment(\.dismiss) private var dismiss
 
-    private enum Source: Hashable { case paste, later }
-
     @State private var name = ""
     @State private var hasRaceDate = false
     @State private var raceDate = Calendar.current.date(byAdding: .month, value: 2, to: .now) ?? .now
     @State private var startTime = Calendar.current.date(bySettingHour: 7, minute: 0, second: 0, of: .now) ?? .now
-    @State private var source: Source = .paste
 
     @State private var text = ""
     @State private var planNow = true
@@ -48,24 +45,7 @@ struct NewEventView: View {
                     }
                 }
 
-                Section {
-                    Picker("Trainingen", selection: $source) {
-                        Text("Plak schema").tag(Source.paste)
-                        Text("Later toevoegen").tag(Source.later)
-                    }
-                    .pickerStyle(.segmented)
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                }
-
-                if source == .paste {
-                    pasteSections
-                } else {
-                    Section {
-                        Text("Je maakt een leeg event. Voeg later trainingen toe met + in het event.")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+                pasteSections
 
                 if let saveError {
                     Section {
@@ -125,6 +105,8 @@ struct NewEventView: View {
                             .allowsHitTesting(false)
                     }
                 }
+        } header: {
+            Text("Schema (optioneel)")
         } footer: {
             Text(footer)
         }
@@ -163,7 +145,7 @@ struct NewEventView: View {
     }
 
     private var footer: String {
-        var t = "Kopieer de prompt, plak hem in Claude en plak het antwoord hier. Je eigen schema werkt ook: met datums, of met weken en dagen."
+        var t = "Laat leeg om later trainingen toe te voegen. Of kopieer de prompt, plak hem in Claude en plak het antwoord hier. Je eigen schema werkt ook."
         if let reason = WorkoutAI.unavailableReason { t += " " + reason }
         return t
     }
@@ -209,7 +191,7 @@ struct NewEventView: View {
 
     private var finalName: String {
         let typed = name.trimmingCharacters(in: .whitespaces)
-        return typed.isEmpty ? (source == .paste ? parsed?.schedule.name ?? "" : "") : typed
+        return typed.isEmpty ? parsed?.schedule.name ?? "" : typed
     }
 
     private var timeString: String {
@@ -261,7 +243,7 @@ struct NewEventView: View {
         let name = finalName
         guard !name.isEmpty, store.event(named: name) == nil else { return nil }
         var workouts: [PlannedWorkout] = []
-        if source == .paste {
+        if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard case .success(let e) = result else { return nil }
             workouts = e.workouts
         }
