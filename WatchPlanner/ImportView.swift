@@ -115,6 +115,17 @@ struct ImportView: View {
                     .font(.callout)
                     .foregroundStyle(.orange)
             }
+            if !skipped.isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Label("\(skipped.count) overgeslagen", systemImage: "exclamationmark.triangle.fill")
+                        .font(.callout.bold())
+                    ForEach(skipped, id: \.self) { Text($0).font(.footnote) }
+                    Text("Voeg die later zelf toe in het event, of pas de tekst hierboven aan.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .foregroundStyle(.orange)
+            }
             ForEach(event.workouts) { w in
                 WorkoutRow(workout: w, kind: WorkoutKind(w, scheduleName: event.name),
                            isPast: ScheduleDates.isPast(w.date), onWatch: false)
@@ -128,7 +139,7 @@ struct ImportView: View {
     private var result: Result<TrainingSchedule, Error>? {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return Result {
-            var e = try WorkoutText.program(text, weekStart: weekStart)
+            var e = try WorkoutText.programWithWarnings(text, weekStart: weekStart).schedule
             let name = customName.trimmingCharacters(in: .whitespaces)
             if !name.isEmpty { e.name = name }
             if let customTime {
@@ -137,6 +148,10 @@ struct ImportView: View {
             }
             return e
         }
+    }
+
+    private var skipped: [String] {
+        (try? WorkoutText.programWithWarnings(text, weekStart: weekStart).skipped) ?? []
     }
 
     private var parsedName: String? {
