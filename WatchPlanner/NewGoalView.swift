@@ -207,6 +207,7 @@ struct NewGoalView: View {
                             .focused($timeFocused)
                             .submitLabel(.next)
                             .onSubmit { goNext() }
+                            .task { timeFocused = true }
                             .padding(14)
                             .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 12))
                     }
@@ -216,7 +217,7 @@ struct NewGoalView: View {
                 } else {
                     option(nil, choice, nil, aim == choice) {
                         aim = choice
-                        timeFocused = choice == "Een tijd neerzetten"
+                        if choice != "Een tijd neerzetten" { timeFocused = false }
                     }
                 }
             }
