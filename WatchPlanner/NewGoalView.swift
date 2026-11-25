@@ -215,7 +215,7 @@ struct NewGoalView: View {
             if n < 120 { return "Nog \(n) dagen, mooi op tijd." }
             return "Nog \(n) dagen, lekker veel tijd om op te bouwen."
         case .method:
-            switch method { case .ai: return "Fijn, dan stel ik je een paar vragen."; case .paste: return "Top."; case .later: return "Prima." }
+            switch method { case .ai: return "Leuk! Dan stel ik je een paar vragen."; case .paste: return "Top."; case .later: return "Prima, dan doen we dat later." }
         case .perWeek: return "\(perWeek)x per week, mooi."
         case .level: return "Duidelijk."
         case .aim:
@@ -230,7 +230,7 @@ struct NewGoalView: View {
         case .name: return "Hoi! Waar train je voor?"
         case .trail: return "Een trail, mooi! Hoe ver is hij, en hoeveel hoogtemeters?"
         case .date: return "Wanneer is de grote dag?"
-        case .method: return "Hoe wil je je schema maken?"
+        case .method: return "Zal ik je helpen met een schema? Of heb je er al een?"
         case .perWeek: return "Hoe vaak per week wil je lopen?"
         case .level: return "Wat lukt je nu? En hoe zwaar voelt dat?"
         case .aim: return "Wat wil je bereiken? Kies er gerust meer."
@@ -252,7 +252,7 @@ struct NewGoalView: View {
             return parts.isEmpty ? "Weet ik nog niet" : parts.joined(separator: ", ")
         case .date: return hasDate ? Format.day(dayString(bigDay)) : "Nog geen datum"
         case .method:
-            switch method { case .ai: return "Met AI"; case .paste: return "Ik plak of typ het zelf"; case .later: return "Later" }
+            switch method { case .ai: return "Help me ermee"; case .paste: return "Ik plak of typ het zelf"; case .later: return "Doe ik later" }
         case .perWeek: return "\(perWeek)x per week"
         case .level: return level
         case .aim: return aimText
@@ -480,9 +480,9 @@ struct NewGoalView: View {
             }
             GoalPill(title: "Nog geen datum", isOn: false) { hasDate = false; showCalendar = false; goNext() }
         case .method:
-            GoalPill(icon: "sparkles", title: "Met AI", isOn: false) { method = .ai; goNext() }
-            GoalPill(icon: "doc.on.clipboard", title: "Zelf plakken of typen", isOn: false) { method = .paste; goNext() }
-            GoalPill(icon: "clock", title: "Later", isOn: false) { method = .later; goNext() }
+            GoalPill(icon: "sparkles", title: "Help me ermee", isOn: false) { method = .ai; goNext() }
+            GoalPill(icon: "doc.on.clipboard", title: "Ik plak of typ het zelf", isOn: false) { method = .paste; goNext() }
+            GoalPill(icon: "clock", title: "Doe ik later", isOn: false) { method = .later; goNext() }
         case .perWeek:
             ForEach(2...6, id: \.self) { n in
                 GoalPill(title: "\(n)x", isOn: false) { perWeek = n; goNext() }
@@ -584,10 +584,10 @@ struct NewGoalView: View {
             showCalendar = false
         case .method:
             let l = t.lowercased()
-            if l.contains("ai") || l.contains("claude") || l.contains("chatgpt") { method = .ai }
-            else if l.contains("later") { method = .later }
-            else if l.contains("plak") || l.contains("zelf") || l.contains("typ") { method = .paste }
-            else { composerError = "Kies Met AI, Zelf plakken of typen, of Later."; return }
+            if l.contains("later") { method = .later }
+            else if l.contains("plak") || l.contains("zelf") || l.contains("typ") || l.contains("heb al") || l.contains("heb ik al") { method = .paste }
+            else if l.contains("help") || l.contains("ja") || l.contains("graag") || l.contains("ai") || l.contains("claude") || l.contains("chatgpt") { method = .ai }
+            else { composerError = "Kies Help me ermee, Ik plak of typ het zelf, of Doe ik later."; return }
         case .perWeek:
             var parsed = NewGoalView.count(from: t)
             if parsed == nil { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
