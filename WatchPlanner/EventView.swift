@@ -39,7 +39,7 @@ struct EventView: View {
                 HStack(spacing: 12) {
                     KindIcon(kind: .race)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Wedstrijd").font(.caption).foregroundStyle(.secondary)
+                        Text("De grote dag").font(.caption).foregroundStyle(.secondary)
                         Text(Format.day(event.raceDate ?? "")).font(.headline)
                     }
                     Spacer()

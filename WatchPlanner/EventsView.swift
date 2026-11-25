@@ -21,6 +21,7 @@ struct EventsView: View {
             .navigationTitle("Rondje")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
+                    if !store.events.isEmpty {
                     Button {
                         showNewEvent = true
                     } label: {
@@ -29,6 +30,7 @@ struct EventsView: View {
                             .symbolRenderingMode(.hierarchical)
                     }
                     .accessibilityLabel("Nieuw doel")
+                    }
                 }
             }
             .sheet(isPresented: $showNewEvent) { NewEventView() }
@@ -134,63 +136,66 @@ struct EventsView: View {
 
 // MARK: - Welcome
 
-/// Shown when there are no goals yet: what the app does in three steps, and one button.
+/// Shown when there are no goals yet: three swipeable pages on what the app does, and one button.
 struct EmptyHome: View {
     let onNew: () -> Void
+    @State private var page = 0
+
+    private struct Page {
+        let title: String
+        let text: String
+    }
+
+    private let pages = [
+        Page(title: "Waar train je voor?", text: "Kies een doel, zoals een wedstrijd of je eerste 10\u{00A0}km. Rondje telt met je af."),
+        Page(title: "Zet er een schema in", text: "Laat Claude een schema maken en plak het, of typ je trainingen zoals je ze zegt."),
+        Page(title: "Elke ochtend op je pols", text: "De training van vandaag staat klaar in Workout op je Watch, met hartslagzones."),
+    ]
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 28) {
-                ZStack {
-                    Circle().fill(Theme.accent.opacity(0.15)).frame(width: 140, height: 140)
-                    Image(systemName: "figure.run")
-                        .font(.system(size: 64, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                }
-                .padding(.top, 24)
-                .accessibilityHidden(true)
-
-                VStack(spacing: 10) {
-                    Text("Waar train je voor?")
-                        .font(.system(.largeTitle, design: .rounded).bold())
-                    Text("Maak een doel, zoals een wedstrijd. Rondje zet je trainingen op de juiste dag op je Watch.")
-                        .foregroundStyle(.secondary)
-                }
-                .multilineTextAlignment(.center)
-
-                VStack(alignment: .leading, spacing: 20) {
-                    step("flag.checkered", "Kies je doel", "Bijvoorbeeld de Zevenheuvelenloop, met de datum erbij.")
-                    step("sparkles", "Zet er een schema in", "Plak het van Claude, of typ het zelf.")
-                    step("applewatch", "Elke ochtend op je pols", "De training van vandaag staat klaar in Workout.")
-                }
-                .padding(22)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 24))
-
-                Button(action: onNew) {
-                    Label("Nieuw doel", systemImage: "plus")
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(Theme.accent, in: Capsule())
+        VStack(spacing: 0) {
+            TabView(selection: $page) {
+                ForEach(pages.indices, id: \.self) { i in
+                    VStack(spacing: 28) {
+                        Spacer(minLength: 0)
+                        art(i)
+                            .accessibilityHidden(true)
+                        VStack(spacing: 10) {
+                            Text(pages[i].title)
+                                .font(.system(.largeTitle, design: .rounded).bold())
+                            Text(pages[i].text)
+                                .foregroundStyle(.secondary)
+                        }
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 28)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.bottom, 44)
+                    .tag(i)
                 }
             }
+            .tabViewStyle(.page(indexDisplayMode: .always))
+            .indexViewStyle(.page(backgroundDisplayMode: .interactive))
+
+            Button(action: onNew) {
+                Label("Nieuw doel", systemImage: "plus")
+                    .font(.headline)
+                    .foregroundStyle(.black)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .background(Theme.accent, in: Capsule())
+            }
             .padding(.horizontal, 24)
-            .padding(.bottom, 32)
+            .padding(.bottom, 24)
         }
     }
 
-    private func step(_ icon: String, _ title: String, _ text: String) -> some View {
-        HStack(alignment: .top, spacing: 16) {
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(Theme.accent)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
-                Text(text).font(.subheadline).foregroundStyle(.secondary)
-            }
+    @ViewBuilder
+    private func art(_ i: Int) -> some View {
+        switch i {
+        case 0: GoalArt()
+        case 1: ScheduleArt()
+        default: WatchArt()
         }
     }
 }

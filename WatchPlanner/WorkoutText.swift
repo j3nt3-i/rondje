@@ -469,7 +469,7 @@ enum WorkoutText {
 
         var about: [String] = []
         if name.isEmpty {
-            about.append("Ik train voor een hardloopwedstrijd.")
+            about.append("Ik train voor een hardloopdoel.")
         } else if let raceDate {
             about.append("Ik train voor \(name) op \(f.string(from: raceDate)).")
         } else {

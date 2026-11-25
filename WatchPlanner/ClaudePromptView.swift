@@ -32,7 +32,7 @@ struct ClaudePromptView: View {
 
                 Section {
                     LabeledContent("Doel", value: event.isEmpty ? "Nog geen naam" : event)
-                    LabeledContent("Wedstrijd", value: raceDate.map { Format.shortDay($0) } ?? "Geen datum")
+                    LabeledContent("De grote dag", value: raceDate.map { Format.shortDay($0) } ?? "Geen datum")
                 } footer: {
                     Text("Uit het vorige scherm. Pas het daar aan als het niet klopt.")
                 }

@@ -30,7 +30,7 @@ struct NewEventView: View {
                 Section {
                     TextField("Naam", text: $name, prompt: Text(parsed?.schedule.name ?? "Bijvoorbeeld Zevenheuvelenloop"))
                         .font(.headline)
-                    Toggle("Wedstrijddatum", isOn: $hasRaceDate.animation())
+                    Toggle("De grote dag", isOn: $hasRaceDate.animation())
                     if hasRaceDate {
                         DatePicker("Datum", selection: $raceDate, in: Calendar.current.startOfDay(for: .now)...,
                                    displayedComponents: .date)
@@ -294,7 +294,7 @@ struct EditEventView: View {
                 Section {
                     TextField("Naam", text: $name)
                         .font(.headline)
-                    Toggle("Wedstrijddatum", isOn: $hasRaceDate.animation())
+                    Toggle("De grote dag", isOn: $hasRaceDate.animation())
                     if hasRaceDate {
                         DatePicker("Datum", selection: $raceDate, displayedComponents: .date)
                     }
