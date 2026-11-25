@@ -24,6 +24,7 @@ struct NewGoalView: View {
     @State private var name = ""
     @State private var ownName = false
     @FocusState private var nameFocused: Bool
+    @FocusState private var timeFocused: Bool
     @State private var hasDate = true
     @State private var bigDay = Calendar.current.date(byAdding: .month, value: 2, to: .now) ?? .now
 
@@ -193,10 +194,31 @@ struct NewGoalView: View {
         case .aim:
             header("Wat wil je bereiken?", nil)
             ForEach(["Uitlopen", "Een tijd neerzetten", "Sneller worden", "Fit blijven"], id: \.self) { choice in
-                option(nil, choice, nil, aim == choice) { aim = choice }
-            }
-            if aim == "Een tijd neerzetten" {
-                ownField("Welke tijd? Bijv. 1:20 of onder de 50 minuten", text: $aimTime)
+                if choice == "Een tijd neerzetten" && aim == choice {
+                    // The time goes right into the chosen card.
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            Text(choice).font(.headline)
+                            Spacer()
+                            Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(Theme.accent)
+                        }
+                        TextField("Welke tijd? Bijv. 1:20 of onder de 50 min", text: $aimTime)
+                            .font(.title3.bold())
+                            .focused($timeFocused)
+                            .submitLabel(.next)
+                            .onSubmit { goNext() }
+                            .padding(14)
+                            .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .padding(18)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
+                } else {
+                    option(nil, choice, nil, aim == choice) {
+                        aim = choice
+                        timeFocused = choice == "Een tijd neerzetten"
+                    }
+                }
             }
 
         case .wishes:
