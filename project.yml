@@ -1,6 +1,7 @@
 name: WatchPlanner
 options:
   bundleIdPrefix: nl.jente
+  developmentLanguage: nl
   deploymentTarget:
     iOS: "17.0"
 settings:

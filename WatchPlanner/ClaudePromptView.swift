@@ -1,11 +1,13 @@
 import SwiftUI
 import UIKit
 
-// Builds the prompt for Claude from the event and a few answers, shows it, and copies it.
+// Make a schedule with AI: build a prompt from the event and a few answers,
+// copy it to Claude, and paste the answer back into the new event.
 
 struct ClaudePromptView: View {
     let event: String
     let raceDate: Date?
+    let onAnswer: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -20,6 +22,14 @@ struct ClaudePromptView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    step(1, "Vertel hieronder iets over jezelf. Wij maken daar een prompt van.")
+                    step(2, "Kopieer de prompt en plak hem in Claude. Een andere AI kan ook.")
+                    step(3, "Kopieer het antwoord van Claude en tik hier onderaan op Plak. Je ziet meteen het schema.")
+                } header: {
+                    Text("Zo werkt het")
+                }
+
                 Section {
                     LabeledContent("Event", value: event.isEmpty ? "Nog geen naam" : event)
                     LabeledContent("Wedstrijd", value: raceDate.map { Format.shortDay($0) } ?? "Geen datum")
@@ -43,11 +53,11 @@ struct ClaudePromptView: View {
                     Text("De prompt")
                 }
             }
-            .navigationTitle("Prompt voor Claude")
+            .navigationTitle("Schema met AI")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Klaar") { dismiss() }
+                    Button("Sluit") { dismiss() }
                 }
             }
             .safeAreaInset(edge: .bottom) { actions }
@@ -60,8 +70,20 @@ struct ClaudePromptView: View {
                                  level: level, goal: goal, wishes: wishes)
     }
 
+    private func step(_ n: Int, _ text: String) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(n)")
+                .font(.caption.bold())
+                .foregroundStyle(.black)
+                .frame(width: 22, height: 22)
+                .background(Theme.accent, in: Circle())
+            Text(text)
+                .font(.subheadline)
+        }
+    }
+
     private var actions: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             Button {
                 UIPasteboard.general.string = prompt
                 copied = true
@@ -73,16 +95,27 @@ struct ClaudePromptView: View {
                     .padding(.vertical, 14)
                     .background(Theme.accent, in: Capsule())
             }
-            Button("Open Claude") {
-                if let url = URL(string: "https://claude.ai/new") { openURL(url) }
+            HStack {
+                Button("Open Claude", systemImage: "arrow.up.right") {
+                    if let url = URL(string: "https://claude.ai/new") { openURL(url) }
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                Spacer()
+                PasteButton(payloadType: String.self) { strings in
+                    guard let answer = strings.first, !answer.isEmpty else { return }
+                    Task { @MainActor in
+                        onAnswer(answer)
+                        dismiss()
+                    }
+                }
+                .labelStyle(.titleAndIcon)
+                .buttonBorderShape(.capsule)
+                .tint(Theme.accent)
             }
-            .font(.subheadline.bold())
-            if copied {
-                Text("Plak hem in Claude, kopieer het antwoord en plak dat in Schema.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
+            Text("Plak zet het antwoord van Claude in je nieuwe event.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding()
         .background(.bar)

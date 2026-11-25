@@ -65,7 +65,9 @@ struct NewEventView: View {
             }
             .task(id: "\(text)|\(weekStart)") { await askAI() }
             .sheet(isPresented: $showPrompt) {
-                ClaudePromptView(event: finalName, raceDate: hasRaceDate ? raceDate : nil)
+                ClaudePromptView(event: finalName, raceDate: hasRaceDate ? raceDate : nil) { answer in
+                    text = answer
+                }
             }
         }
     }
@@ -75,20 +77,38 @@ struct NewEventView: View {
     @ViewBuilder
     private var pasteSections: some View {
         Section {
-            HStack {
-                PasteButton(payloadType: String.self) { strings in
-                    text = strings.first ?? ""
+            Button {
+                showPrompt = true
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "sparkles")
+                        .font(.title3)
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Maak een schema met AI")
+                            .foregroundStyle(.primary)
+                        Text("Wij maken een prompt voor Claude. Jij plakt het antwoord terug.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption.bold())
+                        .foregroundStyle(.tertiary)
                 }
-                .labelStyle(.titleAndIcon)
-                .buttonBorderShape(.capsule)
-                .tint(Theme.accent)
-                Spacer()
-                Button("Prompt voor Claude", systemImage: "sparkles") {
-                    showPrompt = true
-                }
-                .buttonStyle(.bordered)
-                .buttonBorderShape(.capsule)
             }
+        } header: {
+            Text("Trainingen (optioneel)")
+        }
+
+        Section {
+            PasteButton(payloadType: String.self) { strings in
+                text = strings.first ?? ""
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonBorderShape(.capsule)
+            .tint(Theme.accent)
             TextEditor(text: $text)
                 .font(.callout)
                 .frame(minHeight: 180)
@@ -104,7 +124,7 @@ struct NewEventView: View {
                     }
                 }
         } header: {
-            Text("Schema (optioneel)")
+            Text("Of plak je eigen schema")
         } footer: {
             Text(footer)
         }
@@ -143,7 +163,7 @@ struct NewEventView: View {
     }
 
     private var footer: String {
-        var t = "Laat leeg om later trainingen toe te voegen. Of kopieer de prompt, plak hem in Claude en plak het antwoord hier. Je eigen schema werkt ook."
+        var t = "Met datums of met weken en dagen. Laat leeg om later trainingen toe te voegen."
         if let reason = WorkoutAI.unavailableReason { t += " " + reason }
         return t
     }
