@@ -56,6 +56,8 @@ struct NewGoalView: View {
     @FocusState private var composerFocused: Bool
     /// Things you corrected along the way ("eigenlijk 15 december") and what Rondje changed.
     @State private var corrections: [Correction] = []
+    /// After changing an earlier answer, carry on at the question you were on.
+    @State private var resumeAt: Step?
 
     private struct Correction: Identifiable {
         let id = UUID()
@@ -175,8 +177,14 @@ struct NewGoalView: View {
     }
 
     private func goNext() {
-        guard let i = path.firstIndex(of: step), i + 1 < path.count else { return }
-        step = path[i + 1]
+        if let resume = resumeAt, path.contains(resume) {
+            resumeAt = nil
+            step = resume
+        } else {
+            resumeAt = nil
+            guard let i = path.firstIndex(of: step), i + 1 < path.count else { return }
+            step = path[i + 1]
+        }
         keepKeyboardOnlyWhenTyping()
     }
 
@@ -186,7 +194,11 @@ struct NewGoalView: View {
         keepKeyboardOnlyWhenTyping()
     }
 
+    /// Back to an earlier question; once answered, the chat carries on where you were.
     private func jump(to s: Step) {
+        if let here = path.firstIndex(of: step), let there = path.firstIndex(of: s), there < here {
+            resumeAt = resumeAt ?? step
+        }
         step = s
         keepKeyboardOnlyWhenTyping()
     }
@@ -631,7 +643,7 @@ struct NewGoalView: View {
     /// Returns what Rondje says back, or nil when this is not a correction of an earlier answer.
     private func correct(_ t: String) -> String? {
         let l = t.lowercased()
-        let markers = ["eigenlijk", "oeps", "verkeerd", "foutje", "toch", "sorry", "verander", "moet zijn"]
+        let markers = ["eigenlijk", "oeps", "verkeerd", "fout", "klopt niet", "toch", "sorry", "verander", "aanpassen", "moet zijn"]
         guard markers.contains(where: l.contains) else { return nil }
         let done = Set(pastSteps)
 
@@ -652,12 +664,28 @@ struct NewGoalView: View {
                 return "Aangepast: \(answer(.trail))."
             }
         }
-        if done.contains(.name), let m = l.range(of: #"(?:heet|naam is|noem het)\s+(?:eigenlijk\s+)?"#, options: .regularExpression) {
+        if done.contains(.name), let m = l.range(of: #"(?:heet|naam is|noem het)\s+(?:eigenlijk\s+)?"#, options: .regularExpression),
+           m.upperBound < l.endIndex {
             let new = String(t[m.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
             guard !new.isEmpty else { return nil }
             ownName = goalPresets.first { $0.title.lowercased() == new.lowercased() } == nil
             name = goalPresets.first { $0.title.lowercased() == new.lowercased() }?.title ?? new
             return "Aangepast: je doel heet nu \(trimmedName)."
+        }
+
+        // "De datum klopt niet" without a new date: ask that question again, then carry on here.
+        let topics: [(Step, [String])] = [
+            (.date, ["datum", "dag", "wanneer"]),
+            (.perWeek, ["per week", "hoe vaak", "keer"]),
+            (.name, ["naam", "heet"]),
+            (.trail, ["afstand", "hoogte", "kilometer"]),
+            (.level, ["niveau", "lukt"]),
+            (.aim, ["bereiken"]),
+            (.wishes, ["wens"]),
+        ]
+        if let target = topics.first(where: { done.contains($0.0) && $0.1.contains(where: l.contains) })?.0 {
+            jump(to: target)
+            return "Geen probleem, dan pas ik dat aan."
         }
         return nil
     }
