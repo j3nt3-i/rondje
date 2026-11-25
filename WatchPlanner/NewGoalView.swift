@@ -46,6 +46,11 @@ struct NewGoalView: View {
     @State private var openedApp = false
     @State private var chosenApp: String?
 
+    // The chat input at the bottom
+    @State private var composer = ""
+    @State private var composerError: String?
+    @State private var showCalendar = false
+
     // Schedule text and how it reads
     @State private var text = ""
     @State private var reading: Result<(schedule: TrainingSchedule, doubts: [WorkoutText.Doubt]), Error>?
@@ -272,19 +277,20 @@ struct NewGoalView: View {
             .padding(16)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
             .padding(.leading, 36)
-        case .paste where method == .paste:
-            TextEditor(text: $text)
-                .font(.callout)
-                .frame(minHeight: 200)
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .background(Theme.pill, in: RoundedRectangle(cornerRadius: 18))
-                .overlay(alignment: .topLeading) {
-                    if text.isEmpty {
-                        Text("Bijvoorbeeld:\nDi 1 dec: 10 min inlopen, 5 keer 3 min hard met 2 min rust, uitlopen")
-                            .font(.callout).foregroundStyle(.tertiary).padding(18).allowsHitTesting(false)
-                    }
+        case .date where showCalendar:
+            VStack(spacing: 10) {
+                DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
+                    .datePickerStyle(.graphical)
+                    .tint(Theme.accent)
+                bigButton("Kies \(Format.day(dayString(bigDay)).lowercased())", "checkmark") {
+                    hasDate = true
+                    showCalendar = false
+                    goNext()
                 }
+            }
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+            .padding(.leading, 36)
         case .review:
             reviewCard
         default:
@@ -346,130 +352,10 @@ struct NewGoalView: View {
 
     // MARK: - Answer controls at the bottom
 
+    /// Most steps: option chips above an always-visible chat field. Action steps keep their buttons.
     @ViewBuilder
     private var dock: some View {
         switch step {
-        case .name:
-            VStack(alignment: .leading, spacing: 12) {
-                FlowLayout(spacing: 8) {
-                    ForEach(goalPresets, id: \.title) { g in
-                        GoalPill(icon: g.icon, title: g.title, isOn: !ownName && name == g.title) {
-                            ownName = false
-                            name = g.title
-                            if nameOK { goNext() }
-                        }
-                    }
-                    GoalPill(icon: "plus", title: "Anders, namelijk...", isOn: ownName) {
-                        if !ownName { name = "" }
-                        ownName = true
-                        nameFocused = true
-                    }
-                }
-                if ownName {
-                    inputRow("Naam van je doel, bijv. Devil's Trail", text: $name, focus: $nameFocused, enabled: nameOK) { goNext() }
-                }
-                if !trimmedName.isEmpty, store.event(named: trimmedName) != nil {
-                    Text("Er is al een doel met deze naam.").font(.footnote).foregroundStyle(.orange)
-                }
-            }
-
-        case .trail:
-            VStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    numberField("Afstand", "15", unit: "km", text: $trailKm, keyboard: .decimalPad)
-                    numberField("Hoogtemeters", "400", unit: "m", text: $trailUp, keyboard: .numberPad)
-                }
-                HStack {
-                    GoalPill(title: "Weet ik nog niet", isOn: false) { trailKm = ""; trailUp = ""; goNext() }
-                    Spacer()
-                    sendButton(enabled: !(trailKm.isEmpty && trailUp.isEmpty)) { goNext() }
-                }
-            }
-
-        case .date:
-            VStack(spacing: 10) {
-                DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .tint(Theme.accent)
-                    .frame(maxHeight: 330)
-                HStack {
-                    GoalPill(title: "Nog geen datum", isOn: false) { hasDate = false; goNext() }
-                    Spacer()
-                    sendButton(enabled: true) { hasDate = true; goNext() }
-                }
-            }
-
-        case .method:
-            VStack(spacing: 8) {
-                RadioRow(icon: "sparkles", title: "Met AI",
-                         text: "Een paar vragen, en je eigen AI, zoals Claude of ChatGPT, maakt het schema.",
-                         isOn: false) { method = .ai; goNext() }
-                RadioRow(icon: "doc.on.clipboard", title: "Zelf plakken of typen",
-                         text: "Je hebt al een schema, van een trainer, website of AI.",
-                         isOn: false) { method = .paste; goNext() }
-                RadioRow(icon: "clock", title: "Later",
-                         text: "Eerst het doel, trainingen voeg je later toe.",
-                         isOn: false) { method = .later; goNext() }
-            }
-
-        case .perWeek:
-            FlowLayout(spacing: 8) {
-                ForEach(2...6, id: \.self) { n in
-                    GoalPill(title: "\(n)x", isOn: false) { perWeek = n; goNext() }
-                }
-            }
-
-        case .level:
-            VStack(alignment: .leading, spacing: 12) {
-                FlowLayout(spacing: 8) {
-                    ForEach(levels, id: \.title) { l in
-                        GoalPill(title: l.title, isOn: false) { level = levelValue(l); goNext() }
-                    }
-                }
-                inputRow("Of vertel het zelf", text: $ownLevel, focus: nil,
-                         enabled: !ownLevel.trimmingCharacters(in: .whitespaces).isEmpty) {
-                    level = ownLevel.trimmingCharacters(in: .whitespaces)
-                    goNext()
-                }
-            }
-
-        case .aim:
-            VStack(alignment: .leading, spacing: 12) {
-                FlowLayout(spacing: 8) {
-                    ForEach(aimChoices, id: \.self) { choice in
-                        GoalPill(title: choice, isOn: aims.contains(choice)) {
-                            if aims.contains(choice) { aims.remove(choice) } else { aims.insert(choice) }
-                        }
-                    }
-                    GoalPill(icon: "plus", title: "Anders", isOn: ownAimOn) {
-                        ownAimOn.toggle()
-                        if !ownAimOn { ownAim = "" }
-                    }
-                }
-                if aims.contains("Een tijd neerzetten") {
-                    labeledField("Tijd", "Bijv. 1:20 of onder de 50 min", text: $aimTime, focus: $timeFocused)
-                }
-                if ownAimOn {
-                    labeledField("Anders", "Wat wil je nog meer bereiken?", text: $ownAim, focus: $ownAimFocused)
-                }
-                HStack {
-                    Spacer()
-                    sendButton(enabled: !aimText.isEmpty) { goNext() }
-                }
-            }
-
-        case .wishes:
-            VStack(alignment: .leading, spacing: 12) {
-                FlowLayout(spacing: 8) {
-                    ForEach(["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"], id: \.self) { w in
-                        GoalPill(title: w, isOn: wishes.contains(w)) {
-                            if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
-                        }
-                    }
-                }
-                inputRow("Iets anders? Bijv. nooit op woensdag", text: $ownWish, focus: nil, enabled: true) { goNext() }
-            }
-
         case .copy:
             bigButton("Kopieer prompt", "doc.on.doc") {
                 UIPasteboard.general.string = prompt
@@ -501,67 +387,246 @@ struct NewGoalView: View {
                     .font(.subheadline.bold())
             }
 
-        case .paste:
-            VStack(spacing: 10) {
-                PasteButton(payloadType: String.self) { strings in
-                    guard let s = strings.first, !s.isEmpty else { return }
-                    Task { @MainActor in
-                        text = s
-                        step = .review
-                    }
-                }
-                .labelStyle(.titleAndIcon)
-                .buttonBorderShape(.capsule)
-                .controlSize(.extraLarge)
-                .tint(Theme.accent)
-                if method == .paste {
-                    bigButton("Klaar", "checkmark") { goNext() }
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .opacity(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
-                } else {
-                    Button("Prompt nog een keer kopiëren") { UIPasteboard.general.string = prompt }
-                        .font(.subheadline.bold())
-                }
-            }
-
         case .review:
             bigButton("Maak doel", "checkmark") { create() }
                 .disabled(!canCreate)
                 .opacity(canCreate ? 1 : 0.4)
+
+        default:
+            VStack(alignment: .leading, spacing: 10) {
+                if let composerError {
+                    Text(composerError).font(.footnote).foregroundStyle(.orange)
+                }
+                suggestions
+                HStack(alignment: .bottom, spacing: 8) {
+                    TextField(placeholder, text: $composer, axis: .vertical)
+                        .lineLimit(1...(step == .paste ? 8 : 4))
+                        .padding(.horizontal, 16).padding(.vertical, 12)
+                        .background(Theme.pill, in: RoundedRectangle(cornerRadius: 22))
+                        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.08), lineWidth: 1))
+                        .onChange(of: composer) { composerError = nil }
+                    sendButton(enabled: canSend) { send() }
+                }
+            }
         }
+    }
+
+    /// Tappable options above the chat field. One-choice steps answer right away;
+    /// multi-choice steps toggle, and the send button sends them.
+    @ViewBuilder
+    private var suggestions: some View {
+        let row: some View = ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) { suggestionChips }
+        }
+        .scrollClipDisabled()
+        switch step {
+        case .name, .aim, .wishes, .level:
+            FlowLayout(spacing: 8) { suggestionChips }
+        default:
+            row
+        }
+    }
+
+    @ViewBuilder
+    private var suggestionChips: some View {
+        switch step {
+        case .name:
+            ForEach(goalPresets, id: \.title) { g in
+                GoalPill(icon: g.icon, title: g.title, isOn: false) { answerName(g.title, preset: true) }
+            }
+        case .trail:
+            GoalPill(title: "Weet ik nog niet", isOn: false) { trailKm = ""; trailUp = ""; goNext() }
+        case .date:
+            GoalPill(icon: "calendar", title: "Kies in kalender", isOn: showCalendar) { hideKeyboard(); showCalendar.toggle() }
+            GoalPill(title: "Nog geen datum", isOn: false) { hasDate = false; showCalendar = false; goNext() }
+        case .method:
+            GoalPill(icon: "sparkles", title: "Met AI", isOn: false) { method = .ai; goNext() }
+            GoalPill(icon: "doc.on.clipboard", title: "Zelf plakken of typen", isOn: false) { method = .paste; goNext() }
+            GoalPill(icon: "clock", title: "Later", isOn: false) { method = .later; goNext() }
+        case .perWeek:
+            ForEach(2...6, id: \.self) { n in
+                GoalPill(title: "\(n)x", isOn: false) { perWeek = n; goNext() }
+            }
+        case .level:
+            ForEach(levels, id: \.title) { l in
+                GoalPill(title: l.title, isOn: false) { level = levelValue(l); goNext() }
+            }
+        case .aim:
+            ForEach(aimChoices, id: \.self) { choice in
+                GoalPill(title: choice, isOn: aims.contains(choice)) {
+                    if aims.contains(choice) { aims.remove(choice) } else { aims.insert(choice) }
+                }
+            }
+        case .wishes:
+            ForEach(wishChoices, id: \.self) { w in
+                GoalPill(title: w, isOn: wishes.contains(w)) {
+                    if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
+                }
+            }
+            GoalPill(title: "Geen wensen", isOn: false) { wishes = []; ownWish = ""; goNext() }
+        case .paste:
+            PasteButton(payloadType: String.self) { strings in
+                guard let s = strings.first, !s.isEmpty else { return }
+                Task { @MainActor in
+                    text = s
+                    composer = ""
+                    step = .review
+                }
+            }
+            .labelStyle(.titleAndIcon)
+            .buttonBorderShape(.capsule)
+            .tint(Theme.accent)
+            if method == .ai {
+                GoalPill(icon: "doc.on.doc", title: "Prompt nog een keer kopiëren", isOn: false) { UIPasteboard.general.string = prompt }
+            }
+        default:
+            EmptyView()
+        }
+    }
+
+    private var placeholder: String {
+        switch step {
+        case .name: return "Of typ je eigen doel, bijv. Devil's Trail"
+        case .trail: return "Bijv. 15 km, 400 hoogtemeters"
+        case .date: return "Bijv. 13 december"
+        case .method: return "Kies hierboven"
+        case .perWeek: return "Bijv. 4"
+        case .level: return "Of vertel het zelf, bijv. 2x per week 6 km"
+        case .aim: return aims.contains("Een tijd neerzetten") ? "Welke tijd? Bijv. 1:55" : "Kies hierboven, of typ het zelf"
+        case .wishes: return "Kies hierboven, of typ bijv. nooit op woensdag"
+        case .paste: return method == .ai ? "Of plak het antwoord hier" : "Plak of typ je schema"
+        default: return ""
+        }
+    }
+
+    private var typed: String { composer.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    private var canSend: Bool {
+        switch step {
+        case .aim: return !typed.isEmpty || !aims.isEmpty
+        case .wishes: return !typed.isEmpty || !wishes.isEmpty
+        default: return !typed.isEmpty
+        }
+    }
+
+    /// Reads what was typed for the current question.
+    private func send() {
+        composerError = nil
+        let t = typed
+        switch step {
+        case .name:
+            answerName(t, preset: false)
+            return
+        case .trail:
+            let r = NewGoalView.trail(from: t)
+            guard r.km != nil || r.up != nil else { composerError = "Dat snap ik niet. Typ bijv. 15 km, 400 hoogtemeters."; return }
+            trailKm = r.km ?? ""
+            trailUp = r.up ?? ""
+        case .date:
+            guard let d = NewGoalView.date(from: t) else { composerError = "Die datum snap ik niet. Typ bijv. 13 december of 13-12-2026."; return }
+            bigDay = d
+            hasDate = true
+            showCalendar = false
+        case .method:
+            let l = t.lowercased()
+            if l.contains("ai") || l.contains("claude") || l.contains("chatgpt") { method = .ai }
+            else if l.contains("later") { method = .later }
+            else if l.contains("plak") || l.contains("zelf") || l.contains("typ") { method = .paste }
+            else { composerError = "Kies Met AI, Zelf plakken of typen, of Later."; return }
+        case .perWeek:
+            guard let n = NewGoalView.count(from: t), (1...7).contains(n) else { composerError = "Typ een aantal van 1 tot 7."; return }
+            perWeek = n
+        case .level:
+            level = t
+        case .aim:
+            if let time = t.range(of: #"\d{1,2}[:.]\d{2}(?:[:.]\d{2})?"#, options: .regularExpression) {
+                aims.insert("Een tijd neerzetten")
+                aimTime = String(t[time])
+                let rest = t.replacingCharacters(in: time, with: "").trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+                ownAimOn = !rest.isEmpty
+                ownAim = rest
+            } else {
+                ownAimOn = !t.isEmpty
+                ownAim = t
+            }
+        case .wishes:
+            ownWish = t
+        case .paste:
+            text = composer
+        default:
+            break
+        }
+        composer = ""
+        goNext()
+    }
+
+    private func answerName(_ value: String, preset: Bool) {
+        let match = goalPresets.first { $0.title.lowercased() == value.lowercased() }
+        ownName = match == nil
+        name = match?.title ?? value
+        guard nameOK else {
+            composerError = trimmedName.isEmpty ? nil : "Er is al een doel met deze naam. Kies een andere naam."
+            return
+        }
+        composer = ""
+        goNext()
+    }
+
+    private let wishChoices = ["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"]
+
+    // MARK: - Reading typed answers
+
+    private static let numberWords = ["een": 1, "één": 1, "twee": 2, "drie": 3, "vier": 4, "vijf": 5, "zes": 6, "zeven": 7]
+
+    /// "4", "4x", "vier keer" -> 4
+    static func count(from text: String) -> Int? {
+        let l = text.lowercased()
+        if l.contains("elke dag") || l.contains("dagelijks") { return 7 }
+        if let r = l.range(of: #"\d+"#, options: .regularExpression) { return Int(l[r]) }
+        return numberWords.first { l.contains($0.key) }?.value
+    }
+
+    /// "15 km, 400 hoogtemeters", "15 km", "400 hm" -> (km, up)
+    static func trail(from text: String) -> (km: String?, up: String?) {
+        let l = text.lowercased().replacingOccurrences(of: ",", with: ".")
+        func grab(_ pattern: String) -> String? {
+            guard let re = try? NSRegularExpression(pattern: pattern),
+                  let m = re.firstMatch(in: l, range: NSRange(l.startIndex..., in: l)),
+                  let r = Range(m.range(at: 1), in: l) else { return nil }
+            return String(l[r]).replacingOccurrences(of: ".", with: ",")
+        }
+        let up = grab(#"(\d+)\s*(?:hm|hoogtemeters?|m\b|meter)"#)
+        var km = grab(#"(\d+(?:\.\d+)?)\s*(?:km|k\b|kilometer)"#)
+        if km == nil, up == nil { km = grab(#"(\d+(?:\.\d+)?)"#) }
+        return (km, up)
+    }
+
+    /// "13 december", "13 dec 2026", "13-12-2026", "13/12" -> the next such day from today
+    static func date(from text: String, now: Date = .now) -> Date? {
+        let t = text.lowercased().trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: ".", with: "")
+            .replacingOccurrences(of: #"^(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo)\s+"#,
+                                  with: "", options: .regularExpression)
+        let cal = Calendar.current
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "nl_NL")
+        for format in ["d MMMM yyyy", "d MMM yyyy", "d-M-yyyy", "d/M/yyyy", "yyyy-M-d"] {
+            f.dateFormat = format
+            if let d = f.date(from: t) { return cal.startOfDay(for: d) }
+        }
+        for format in ["d MMMM", "d MMM", "d-M", "d/M"] {
+            f.dateFormat = format
+            guard let d = f.date(from: t) else { continue }
+            var c = cal.dateComponents([.month, .day], from: d)
+            c.year = cal.component(.year, from: now)
+            guard var date = cal.date(from: c) else { continue }
+            if date < cal.startOfDay(for: now) { date = cal.date(byAdding: .year, value: 1, to: date) ?? date }
+            return date
+        }
+        return nil
     }
 
     // MARK: - Pieces
-
-    /// A text field with a round send button, like a chat input.
-    private func inputRow(_ prompt: String, text: Binding<String>, focus: FocusState<Bool>.Binding?, enabled: Bool,
-                          send: @escaping () -> Void) -> some View {
-        HStack(spacing: 8) {
-            Group {
-                if let focus {
-                    TextField(prompt, text: text, axis: .vertical).focused(focus).task { focus.wrappedValue = true }
-                } else {
-                    TextField(prompt, text: text, axis: .vertical)
-                }
-            }
-            .lineLimit(1...4)
-            .padding(.horizontal, 16).padding(.vertical, 12)
-            .background(Theme.pill, in: Capsule())
-            .overlay(Capsule().strokeBorder(.white.opacity(0.08), lineWidth: 1))
-            .onSubmit { if enabled { send() } }
-            sendButton(enabled: enabled, action: send)
-        }
-    }
-
-    private func labeledField(_ label: String, _ prompt: String, text: Binding<String>, focus: FocusState<Bool>.Binding) -> some View {
-        HStack(spacing: 12) {
-            Text(label).font(.subheadline.bold()).foregroundStyle(Theme.accent)
-            TextField(prompt, text: text).focused(focus).task { focus.wrappedValue = true }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-        .background(Theme.pill, in: Capsule())
-        .overlay(Capsule().strokeBorder(Theme.accent, lineWidth: 1.5))
-    }
 
     private func sendButton(enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
