@@ -675,10 +675,17 @@ struct NewGoalView: View {
         }
     }
 
+    private static let yesNo: [String: String] = [
+        "ja": "Ja", "jaa": "Ja", "jep": "Ja", "yes": "Ja", "ja graag": "Ja", "graag": "Ja", "ok": "Ja", "oké": "Ja",
+        "okay": "Ja", "prima": "Ja", "goed": "Ja", "is goed": "Ja", "zeker": "Ja",
+        "nee": "Nee", "neen": "Nee", "nope": "Nee", "no": "Nee", "niet": "Nee",
+    ]
+
     /// Answers the rules read without doubt, so they go through without waiting.
     private func isPlainAnswer(_ t: String) -> Bool {
         switch step {
         case .name: return goalPresets.contains { $0.title.lowercased() == t.lowercased() }
+        case .method: return NewGoalView.yesNo[t.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))] != nil
         case .perWeek: return t.range(of: #"^[1-7]\s*(x|keer)?$"#, options: [.regularExpression, .caseInsensitive]) != nil
         case .date: return NewGoalView.date(from: t) != nil || NewGoalView.dayNumber(t) != nil || NewGoalView.monthNumber(t) != nil
         default: return false
@@ -800,6 +807,12 @@ struct NewGoalView: View {
             }
         case .method:
             let l = t.lowercased()
+            // "Zal ik je helpen? Of heb je er al een?" asks two things, so a bare ja or nee is unclear.
+            let bare = l.trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+            if let word = NewGoalView.yesNo[bare] {
+                options = ["Help me ermee", "Ik heb er al een", "Doe ik later"]
+                return .ask("\(word) op welke vraag? Wil je hulp met een schema, of heb je er al een?")
+            }
             if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
             else if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
             else if ["ja", "graag", "help", "maak", "ai", "claude", "chatgpt", "prima", "oké", "ok"].contains(where: l.contains) { method = .ai }
