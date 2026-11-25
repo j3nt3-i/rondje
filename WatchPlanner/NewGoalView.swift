@@ -52,7 +52,6 @@ struct NewGoalView: View {
     // The chat input at the bottom
     @State private var composer = ""
     @State private var composerError: String?
-    @State private var showCalendar = false
     @State private var understanding = false
     @FocusState private var composerFocused: Bool
 
@@ -139,7 +138,7 @@ struct NewGoalView: View {
                 }
                 streaming = false
                 // Keep the keyboard up where you can type an answer.
-                composerFocused = typingStep && !showCalendar
+                composerFocused = typingStep
             }
             .task(id: "\(text)|\(weekStart)") { await read() }
             .onChange(of: scenePhase) { _, phase in
@@ -326,19 +325,6 @@ struct NewGoalView: View {
             }
             .padding(16)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-        case .date where showCalendar:
-            VStack(spacing: 10) {
-                DatePicker("Datum", selection: $bigDay, in: Calendar.current.startOfDay(for: .now)..., displayedComponents: .date)
-                    .datePickerStyle(.graphical)
-                    .tint(Theme.accent)
-                bigButton("Kies \(Format.day(dayString(bigDay)).lowercased())", "checkmark") {
-                    hasDate = true
-                    showCalendar = false
-                    goNext()
-                }
-            }
-            .padding(12)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
         case .review:
             reviewCard
         default:
@@ -473,22 +459,10 @@ struct NewGoalView: View {
             ForEach(goalPresets, id: \.title) { g in
                 GoalPill(icon: g.icon, title: g.title, isOn: false) { answerName(g.title, preset: true) }
             }
-        case .trail:
-            GoalPill(title: "Weet ik nog niet", isOn: false) { trailKm = ""; trailUp = ""; goNext() }
-        case .date:
-            GoalPill(icon: "calendar", title: "Kies in kalender", isOn: showCalendar) {
-                showCalendar.toggle()
-                composerFocused = !showCalendar
-            }
-            GoalPill(title: "Nog geen datum", isOn: false) { hasDate = false; showCalendar = false; goNext() }
         case .method:
             GoalPill(icon: "sparkles", title: "Help me ermee", isOn: false) { method = .ai; goNext() }
             GoalPill(icon: "doc.on.clipboard", title: "Ik plak of typ het zelf", isOn: false) { method = .paste; goNext() }
             GoalPill(icon: "clock", title: "Doe ik later", isOn: false) { method = .later; goNext() }
-        case .perWeek:
-            ForEach(2...6, id: \.self) { n in
-                GoalPill(title: "\(n)x", isOn: false) { perWeek = n; goNext() }
-            }
         case .level:
             ForEach(levels, id: \.title) { l in
                 GoalPill(title: l.title, isOn: false) { level = levelValue(l); goNext() }
@@ -529,8 +503,8 @@ struct NewGoalView: View {
     private var placeholder: String {
         switch step {
         case .name: return "Of typ je eigen doel, bijv. Devil's Trail"
-        case .trail: return "Bijv. 15 km, 400 hoogtemeters"
-        case .date: return "Bijv. 13 december"
+        case .trail: return "Bijv. 15 km, 400 hoogtemeters, of weet ik niet"
+        case .date: return "Bijv. 13 december, of nog geen datum"
         case .method: return "Kies hierboven, of typ bijv. ja graag"
         case .perWeek: return "Bijv. 4"
         case .level: return "Of vertel het zelf, bijv. 2x per week 6 km"
@@ -574,6 +548,9 @@ struct NewGoalView: View {
         case .name:
             answerName(t, preset: false)
             return
+        case .trail where NewGoalView.saysNo(t):
+            trailKm = ""
+            trailUp = ""
         case .trail:
             var r = NewGoalView.trail(from: t)
             if r.km == nil && r.up == nil {
@@ -583,13 +560,14 @@ struct NewGoalView: View {
             guard r.km != nil || r.up != nil else { composerError = "Dat snap ik niet. Typ bijv. 15 km, 400 hoogtemeters."; return }
             trailKm = r.km ?? ""
             trailUp = r.up ?? ""
+        case .date where NewGoalView.saysNo(t):
+            hasDate = false
         case .date:
             var parsed = NewGoalView.date(from: t)
             if parsed == nil { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
             guard let d = parsed else { composerError = "Die datum snap ik niet. Typ bijv. 13 december of 13-12-2026."; return }
             bigDay = d
             hasDate = true
-            showCalendar = false
         case .method:
             let l = t.lowercased()
             if l.contains("later") { method = .later }
@@ -649,6 +627,13 @@ struct NewGoalView: View {
     private static let numberWords: [(String, Int)] = [
         ("een", 1), ("één", 1), ("twee", 2), ("drie", 3), ("vier", 4), ("vijf", 5), ("zes", 6), ("zeven", 7),
     ]
+
+    /// "weet ik niet", "nog geen datum", "nee" -> true
+    static func saysNo(_ text: String) -> Bool {
+        let l = text.lowercased()
+        guard !l.contains(where: \.isNumber) else { return false }
+        return ["weet ik", "weet niet", "geen", "nog niet", "nee", "onbekend"].contains { l.contains($0) }
+    }
 
     /// "4", "4x", "vier keer", "een keer of vier", "om de dag" -> runs per week
     static func count(from text: String) -> Int? {
