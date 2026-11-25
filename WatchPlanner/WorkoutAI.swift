@@ -102,6 +102,51 @@ enum WorkoutAI {
         return e
     }
 
+    // MARK: - Understanding loose chat answers
+
+    /// "ergens half december" -> a date. Only used when the rules did not understand it.
+    static func readDate(_ text: String, today: Date = .now) async -> Date? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "yyyy-MM-dd"
+            let prompt = "Today is \(f.string(from: today)). The runner answered the question 'When is the race?' with: \"\(text)\". Give that date. If they name a period like 'half december', pick the middle; 'eind januari' is the last day; a weekday without a date is the next one."
+            guard let r = try? await LanguageModelSession().respond(to: prompt, generating: GenDate.self,
+                                                                     options: GenerationOptions(temperature: 0)).content,
+                  let d = f.date(from: r.date), d >= Calendar.current.startOfDay(for: today) else { return nil }
+            return d
+        }
+        #endif
+        return nil
+    }
+
+    /// "een keer of vier, soms vijf" -> 4
+    static func readCount(_ text: String) async -> Int? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
+            let prompt = "The runner answered the question 'How many times per week do you want to run?' with: \"\(text)\". How many times per week? If they give a range, take the lower number."
+            return try? await LanguageModelSession().respond(to: prompt, generating: GenCount.self,
+                                                             options: GenerationOptions(temperature: 0)).content.timesPerWeek
+        }
+        #endif
+        return nil
+    }
+
+    /// "ongeveer vijftien kilometer met flink klimmen, 500 meter" -> (15, 500)
+    static func readTrail(_ text: String) async -> (km: Double?, up: Int?) {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
+            let prompt = "The runner described their trail race: \"\(text)\". Give the distance in kilometers and the total elevation gain in meters. Use 0 for what they did not mention."
+            if let r = try? await LanguageModelSession().respond(to: prompt, generating: GenTrail.self,
+                                                                 options: GenerationOptions(temperature: 0)).content {
+                return (r.kilometers > 0 ? r.kilometers : nil, r.elevationMeters > 0 ? r.elevationMeters : nil)
+            }
+        }
+        #endif
+        return (nil, nil)
+    }
+
     private static func cleanOutput(_ text: String) -> String {
         text.components(separatedBy: .newlines)
             .map { $0.trimmingCharacters(in: .whitespaces) }
@@ -156,3 +201,28 @@ enum WorkoutAI {
     1x 1 min z4 / 1 min
     """
 }
+
+#if canImport(FoundationModels)
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+struct GenDate {
+    @Guide(description: "The date as yyyy-MM-dd")
+    var date: String
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+struct GenCount {
+    @Guide(description: "Runs per week", .range(1...7))
+    var timesPerWeek: Int
+}
+
+@available(iOS 26.0, macOS 26.0, *)
+@Generable
+struct GenTrail {
+    @Guide(description: "Distance in kilometers, 0 if not mentioned")
+    var kilometers: Double
+    @Guide(description: "Elevation gain in meters, 0 if not mentioned")
+    var elevationMeters: Int
+}
+#endif

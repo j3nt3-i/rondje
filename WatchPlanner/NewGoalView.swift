@@ -50,6 +50,7 @@ struct NewGoalView: View {
     @State private var composer = ""
     @State private var composerError: String?
     @State private var showCalendar = false
+    @State private var understanding = false
 
     // Schedule text and how it reads
     @State private var text = ""
@@ -70,7 +71,7 @@ struct NewGoalView: View {
                             botBubble(question(s))
                             userBubble(answer(s)) { jump(to: s) }
                         }
-                        if botTyping {
+                        if botTyping || understanding {
                             typingBubble
                         } else {
                             botBubble(question(step))
@@ -163,17 +164,58 @@ struct NewGoalView: View {
 
     // MARK: - The conversation
 
+    /// The question, with a short reaction to the answer just before it.
     private func question(_ s: Step) -> String {
+        guard let i = path.firstIndex(of: s), i > 0, let r = reaction(to: path[i - 1]) else { return ask(s) }
+        return r + " " + ask(s)
+    }
+
+    /// Warm, fixed reactions that use what you answered.
+    private func reaction(to s: Step) -> String? {
+        switch s {
+        case .name:
+            if ownName { return "Mooi, \(trimmedName)!" }
+            switch name {
+            case "5 km": return "Mooi, 5 km!"
+            case "10 km": return "10 km, een klassieker!"
+            case "Halve marathon": return "Een halve marathon, stoer!"
+            case "Marathon": return "Een marathon, respect!"
+            case "Beginnen met hardlopen": return "Leuk dat je begint!"
+            case "Fit blijven": return "Fijn doel."
+            default: return nil
+            }
+        case .trail:
+            if let up = Int(trailUp), up >= 500 { return "\(up) hoogtemeters, dat wordt klimmen!" }
+            return trailKm.isEmpty && trailUp.isEmpty ? "Geen probleem." : "Helder."
+        case .date:
+            guard hasDate else { return "Prima, dan houden we het flexibel." }
+            let cal = Calendar.current
+            let n = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: bigDay)).day ?? 0
+            if n < 21 { return "Nog maar \(n) dagen, we gaan ervoor." }
+            if n < 120 { return "Nog \(n) dagen, mooi op tijd." }
+            return "Nog \(n) dagen, lekker veel tijd om op te bouwen."
+        case .method:
+            switch method { case .ai: return "Fijn, dan stel ik je een paar vragen."; case .paste: return "Top."; case .later: return "Prima." }
+        case .perWeek: return "\(perWeek)x per week, mooi."
+        case .level: return "Duidelijk."
+        case .aim:
+            let time = aimTime.trimmingCharacters(in: .whitespaces)
+            return aims.contains("Een tijd neerzetten") && !time.isEmpty ? "Een tijd van \(time), mooi doel!" : "Mooi."
+        default: return nil
+        }
+    }
+
+    private func ask(_ s: Step) -> String {
         switch s {
         case .name: return "Hoi! Waar train je voor?"
-        case .trail: return "Mooi, een trail. Hoe ver is hij, en hoeveel hoogtemeters?"
+        case .trail: return "Een trail, mooi! Hoe ver is hij, en hoeveel hoogtemeters?"
         case .date: return "Wanneer is de grote dag?"
         case .method: return "Hoe wil je je schema maken?"
         case .perWeek: return "Hoe vaak per week wil je lopen?"
         case .level: return "Wat lukt je nu? En hoe zwaar voelt dat?"
         case .aim: return "Wat wil je bereiken? Kies er gerust meer."
         case .wishes: return "Nog wensen voor je schema?"
-        case .copy: return "Top, je prompt is klaar. Kopieer hem, dan open je zo je AI-app."
+        case .copy: return "Je prompt is klaar. Kopieer hem, dan open je zo je AI-app."
         case .openApp: return "Welke AI gebruik je? Plak de prompt daar en verstuur hem."
         case .paste: return method == .ai ? "Plak hier het antwoord als je terug bent." : "Plak of typ hier je schema."
         case .review:
@@ -405,7 +447,7 @@ struct NewGoalView: View {
                         .background(Theme.pill, in: RoundedRectangle(cornerRadius: 22))
                         .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(.white.opacity(0.08), lineWidth: 1))
                         .onChange(of: composer) { composerError = nil }
-                    sendButton(enabled: canSend) { send() }
+                    sendButton(enabled: canSend && !understanding) { Task { await send() } }
                 }
             }
         }
@@ -509,8 +551,9 @@ struct NewGoalView: View {
         }
     }
 
-    /// Reads what was typed for the current question.
-    private func send() {
+    /// Reads what was typed for the current question. The rules first; for loose answers
+    /// ("een uurtje of vijftien km met wat klimmen") Apple Intelligence gets a try.
+    private func send() async {
         composerError = nil
         let t = typed
         switch step {
@@ -518,12 +561,18 @@ struct NewGoalView: View {
             answerName(t, preset: false)
             return
         case .trail:
-            let r = NewGoalView.trail(from: t)
+            var r = NewGoalView.trail(from: t)
+            if r.km == nil && r.up == nil {
+                let ai = await understand { await WorkoutAI.readTrail(t) }
+                r = (ai?.km.map { String(format: "%g", $0).replacingOccurrences(of: ".", with: ",") }, ai?.up.map(String.init))
+            }
             guard r.km != nil || r.up != nil else { composerError = "Dat snap ik niet. Typ bijv. 15 km, 400 hoogtemeters."; return }
             trailKm = r.km ?? ""
             trailUp = r.up ?? ""
         case .date:
-            guard let d = NewGoalView.date(from: t) else { composerError = "Die datum snap ik niet. Typ bijv. 13 december of 13-12-2026."; return }
+            var parsed = NewGoalView.date(from: t)
+            if parsed == nil { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
+            guard let d = parsed else { composerError = "Die datum snap ik niet. Typ bijv. 13 december of 13-12-2026."; return }
             bigDay = d
             hasDate = true
             showCalendar = false
@@ -534,7 +583,9 @@ struct NewGoalView: View {
             else if l.contains("plak") || l.contains("zelf") || l.contains("typ") { method = .paste }
             else { composerError = "Kies Met AI, Zelf plakken of typen, of Later."; return }
         case .perWeek:
-            guard let n = NewGoalView.count(from: t), (1...7).contains(n) else { composerError = "Typ een aantal van 1 tot 7."; return }
+            var parsed = NewGoalView.count(from: t)
+            if parsed == nil { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
+            guard let n = parsed, (1...7).contains(n) else { composerError = "Typ een aantal van 1 tot 7."; return }
             perWeek = n
         case .level:
             level = t
@@ -560,6 +611,14 @@ struct NewGoalView: View {
         goNext()
     }
 
+    /// Shows Rondje typing while Apple Intelligence reads the answer.
+    private func understand<T>(_ work: () async -> T) async -> T? {
+        guard WorkoutAI.isAvailable else { return nil }
+        understanding = true
+        defer { understanding = false }
+        return await work()
+    }
+
     private func answerName(_ value: String, preset: Bool) {
         let match = goalPresets.first { $0.title.lowercased() == value.lowercased() }
         ownName = match == nil
@@ -576,14 +635,23 @@ struct NewGoalView: View {
 
     // MARK: - Reading typed answers
 
-    private static let numberWords = ["een": 1, "één": 1, "twee": 2, "drie": 3, "vier": 4, "vijf": 5, "zes": 6, "zeven": 7]
+    private static let numberWords: [(String, Int)] = [
+        ("een", 1), ("één", 1), ("twee", 2), ("drie", 3), ("vier", 4), ("vijf", 5), ("zes", 6), ("zeven", 7),
+    ]
 
-    /// "4", "4x", "vier keer" -> 4
+    /// "4", "4x", "vier keer", "een keer of vier", "om de dag" -> runs per week
     static func count(from text: String) -> Int? {
         let l = text.lowercased()
         if l.contains("elke dag") || l.contains("dagelijks") { return 7 }
+        if l.contains("om de dag") || l.contains("om de andere dag") { return 3 }
         if let r = l.range(of: #"\d+"#, options: .regularExpression) { return Int(l[r]) }
-        return numberWords.first { l.contains($0.key) }?.value
+        // The first number word, skipping "een" when another one follows ("een keer of vier").
+        var found: [(pos: String.Index, n: Int, word: String)] = []
+        for (word, n) in numberWords {
+            if let r = l.range(of: #"\b\#(word)\b"#, options: .regularExpression) { found.append((r.lowerBound, n, word)) }
+        }
+        found.sort { $0.pos < $1.pos }
+        return (found.first { $0.n != 1 } ?? found.first)?.n
     }
 
     /// "15 km, 400 hoogtemeters", "15 km", "400 hm" -> (km, up)
@@ -601,13 +669,45 @@ struct NewGoalView: View {
         return (km, up)
     }
 
-    /// "13 december", "13 dec 2026", "13-12-2026", "13/12" -> the next such day from today
+    private static let months = ["januari", "februari", "maart", "april", "mei", "juni", "juli", "augustus",
+                                 "september", "oktober", "november", "december"]
+    private static let weekdays = ["maandag", "dinsdag", "woensdag", "donderdag", "vrijdag", "zaterdag", "zondag"]
+
+    /// "13 december", "13 dec 2026", "13-12-2026", "13/12", "half december", "eind januari",
+    /// "zaterdag", "volgende week zaterdag" -> the next such day from today
     static func date(from text: String, now: Date = .now) -> Date? {
-        let t = text.lowercased().trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: ".", with: "")
-            .replacingOccurrences(of: #"^(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo)\s+"#,
-                                  with: "", options: .regularExpression)
         let cal = Calendar.current
+        let today = cal.startOfDay(for: now)
+        var t = text.lowercased().trimmingCharacters(in: .whitespaces).replacingOccurrences(of: ".", with: "")
+        t = t.replacingOccurrences(of: #"^(?:ergens|rond|rondom|ongeveer|zo'n|op|het is|de race is)\s+"#, with: "", options: .regularExpression)
+
+        // "begin / half / midden / eind <maand>"
+        if let m = t.range(of: #"^(begin|half|halverwege|midden|eind|einde)\s+([a-z]+)"#, options: .regularExpression) {
+            let parts = t[m].split(separator: " ").map(String.init)
+            if let mi = months.firstIndex(where: { $0.hasPrefix(parts[1].prefix(3)) }) {
+                var c = DateComponents(year: cal.component(.year, from: today), month: mi + 1, day: 1)
+                guard var first = cal.date(from: c) else { return nil }
+                if cal.date(byAdding: .month, value: 1, to: first)! <= today { c.year! += 1; first = cal.date(from: c) ?? first }
+                let days = cal.range(of: .day, in: .month, for: first)?.count ?? 30
+                let day = parts[0] == "begin" ? 3 : parts[0].hasPrefix("eind") ? days : 15
+                return cal.date(byAdding: .day, value: day - 1, to: first)
+            }
+        }
+
+        // "zaterdag", "deze zaterdag", "volgende week zaterdag"
+        if let wi = weekdays.firstIndex(where: { t.hasSuffix($0) }), !t.contains(where: \.isNumber) {
+            let target = (wi + 1) % 7 + 1 // Calendar weekday: Sunday 1, Monday 2
+            var d = cal.nextDate(after: today, matching: DateComponents(weekday: target), matchingPolicy: .nextTime) ?? today
+            if t.contains("volgende week") {
+                let thisWeek = cal.dateInterval(of: .weekOfYear, for: today)?.start ?? today
+                let nextWeek = cal.date(byAdding: .day, value: 7, to: thisWeek) ?? today
+                while d < nextWeek { d = cal.date(byAdding: .day, value: 7, to: d) ?? d }
+            }
+            return d
+        }
+
+        t = t.replacingOccurrences(of: #"^(?:maandag|dinsdag|woensdag|donderdag|vrijdag|zaterdag|zondag|ma|di|wo|do|vr|za|zo)\s+"#,
+                                   with: "", options: .regularExpression)
         let f = DateFormatter()
         f.locale = Locale(identifier: "nl_NL")
         for format in ["d MMMM yyyy", "d MMM yyyy", "d-M-yyyy", "d/M/yyyy", "yyyy-M-d"] {
@@ -618,9 +718,9 @@ struct NewGoalView: View {
             f.dateFormat = format
             guard let d = f.date(from: t) else { continue }
             var c = cal.dateComponents([.month, .day], from: d)
-            c.year = cal.component(.year, from: now)
+            c.year = cal.component(.year, from: today)
             guard var date = cal.date(from: c) else { continue }
-            if date < cal.startOfDay(for: now) { date = cal.date(byAdding: .year, value: 1, to: date) ?? date }
+            if date < today { date = cal.date(byAdding: .year, value: 1, to: date) ?? date }
             return date
         }
         return nil
