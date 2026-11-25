@@ -148,41 +148,77 @@ enum WorkoutAI {
         return (nil, nil)
     }
 
-    /// An earlier answer in the goal chat that a message can change.
-    enum Field: String, CaseIterable {
-        case goalName = "goal name", raceDate = "race date", runsPerWeek = "runs per week", trail = "trail distance and climb",
-             level = "current level", aim = "what they want to reach", wishes = "wishes for the schedule"
+    /// Why the goal chat cannot use Apple Intelligence, or nil when it can.
+    static var chatOffReason: String? {
+        #if canImport(FoundationModels)
+        if #available(iOS 26.0, macOS 26.0, *) {
+            switch SystemLanguageModel.default.availability {
+            case .available: return nil
+            case .unavailable(.appleIntelligenceNotEnabled):
+                return "Apple Intelligence staat uit. Zet het aan in Instellingen, dan snap ik je beter."
+            case .unavailable(.modelNotReady): return "Apple Intelligence wordt nog gedownload. Tot die tijd snap ik je wat minder goed."
+            case .unavailable: return "Apple Intelligence werkt niet op dit toestel, dus ik snap je wat minder goed."
+            }
+        }
+        #endif
+        return "Voor Apple Intelligence heb je iOS 26 nodig. Tot die tijd snap ik je wat minder goed."
     }
 
-    /// Whether a chat message changes an earlier answer: "de datum klopt niet" -> (raceDate, "").
-    /// The value is in the runner's own words; the rules in the chat read it. Nil when it is
-    /// an answer, a question back, or anything else.
-    static func readCorrection(_ message: String, question: String, earlier: [(Field, String)]) async -> (field: Field, value: String)? {
+    /// A question in the goal chat, and what it asks for.
+    enum Field: String {
+        case goalName, raceDate, trail = "trailDetails", scheduleHelp, runsPerWeek, level = "currentLevel", aim, wishes
+    }
+
+    enum Kind { case answer, correction, question, other }
+
+    /// What a chat message is. The value is in the runner's own words; the chat's rules read it.
+    struct Turn {
+        var kind: Kind
+        var field: Field?
+        var value: String
+    }
+
+    /// Reads one chat message: "o nee, ik bedoelde 10 december" -> correction of raceDate, "10 december".
+    static func readTurn(_ message: String, question: String, current: Field, earlier: [(Field, String)]) async -> Turn? {
         #if canImport(FoundationModels)
-        if #available(iOS 26.0, macOS 26.0, *), isAvailable, !earlier.isEmpty {
-            let answers = earlier.map { "\($0.0.rawValue): \($0.1)" }.joined(separator: "\n")
+        if #available(iOS 26.0, macOS 26.0, *), isAvailable {
+            let answers = earlier.isEmpty ? "none yet" : earlier.map { "\($0.0.rawValue): \($0.1)" }.joined(separator: "\n")
             let instructions = """
-            You are the chat in a running app that asks a runner questions one by one to set up a training goal.
+            You are Rondje, the chat in a running app. You ask a runner questions one by one to set up a training goal.
+            The fields:
+            goalName: what they train for, a race or a goal. raceDate: the day of the race. trailDetails: distance and climb of the race.
+            scheduleHelp: whether they want help making a schedule ('ja graag'), already have one ('heb er al een'), or do it later ('later').
+            runsPerWeek: how often per week they want to run in their schedule.
+            currentLevel: what they can run now and how hard that feels, like '2x per week 6 km' or '5 km is zwaar'.
+            aim: what they want to reach. wishes: wishes for the schedule.
             Earlier answers:
             \(answers)
-            Current question: "\(question)"
-            Classify the runner's latest message.
+            Current question: "\(question)" (field: \(current.rawValue))
+            Read the runner's latest message and decide what it is.
+            A message that only asks something, like 'lopen?' or 'wat bedoel je', is a question, not an answer.
+            A message that says an earlier answer was wrong, like 'o nee, ik bedoelde 10 december', is a correction of that field.
             """
             guard let r = try? await LanguageModelSession(instructions: instructions)
-                    .respond(to: "Message: \"\(message)\"", generating: GenIntent.self, options: GenerationOptions(temperature: 0)).content,
-                  r.kind == .correction else { return nil }
+                    .respond(to: "Message: \"\(message)\"", generating: GenTurn.self, options: GenerationOptions(temperature: 0)).content
+            else { return nil }
+            let kind: Kind = switch r.kind {
+            case .answer: .answer
+            case .correction: .correction
+            case .question: .question
+            case .other: .other
+            }
             let field: Field? = switch r.field {
             case .goalName: .goalName
             case .raceDate: .raceDate
-            case .runsPerWeek: .runsPerWeek
             case .trailDetails: .trail
-            case .level: .level
+            case .scheduleHelp: .scheduleHelp
+            case .runsPerWeek: .runsPerWeek
+            case .currentLevel: .level
             case .aim: .aim
             case .wishes: .wishes
             case .none: nil
             }
-            guard let field, earlier.contains(where: { $0.0 == field }) else { return nil }
-            return (field, r.newValue.trimmingCharacters(in: .whitespacesAndNewlines))
+            return Turn(kind: kind, field: field, value: r.value.trimmingCharacters(in: .whitespacesAndNewlines))
         }
         #endif
         return nil
@@ -269,20 +305,20 @@ struct GenTrail {
 
 @available(iOS 26.0, macOS 26.0, *)
 @Generable
-enum GenKind { case answer, correction, questionBack, other }
+enum GenKind { case answer, correction, question, other }
 
 @available(iOS 26.0, macOS 26.0, *)
 @Generable
-enum GenField { case goalName, raceDate, runsPerWeek, trailDetails, level, aim, wishes, none }
+enum GenField { case goalName, raceDate, trailDetails, scheduleHelp, runsPerWeek, currentLevel, aim, wishes, none }
 
 @available(iOS 26.0, macOS 26.0, *)
 @Generable
-struct GenIntent {
-    @Guide(description: "answer: answers the current question. correction: changes an earlier answer. questionBack: asks what the question means. other: anything else.")
+struct GenTurn {
+    @Guide(description: "answer: the message answers the current question. correction: the message changes one of the earlier answers. question: the runner asks something. other: anything else, like small talk.")
     var kind: GenKind
-    @Guide(description: "For a correction: which earlier answer it changes. Otherwise none.")
+    @Guide(description: "The question the message is about. For an answer: the current question. For a correction: the earlier answer it changes. Otherwise none.")
     var field: GenField
-    @Guide(description: "For a correction: the new value in the runner's words, empty if they did not give one.")
-    var newValue: String
+    @Guide(description: "For an answer or correction: the value exactly in the runner's words, like '4', '20 december' or 'Kerstloop'. Empty when the runner gave no new value.")
+    var value: String
 }
 #endif

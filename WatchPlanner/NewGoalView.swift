@@ -81,6 +81,12 @@ struct NewGoalView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        if let off = WorkoutAI.chatOffReason {
+                            Label(off, systemImage: "apple.intelligence")
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .padding(.bottom, 8)
+                        }
                         ForEach(pastSteps, id: \.self) { s in
                             botBubble(question(s))
                             correctionBubbles(at: s)
@@ -566,11 +572,26 @@ struct NewGoalView: View {
         }
     }
 
-    /// Reads what was typed for the current question. The rules first; for loose answers
-    /// ("een uurtje of vijftien km met wat klimmen") Apple Intelligence gets a try.
+    /// Reads what was typed. With Apple Intelligence on, it reads every message first: an answer,
+    /// a change to an earlier answer ("o nee, ik bedoelde 10 december"), or a question.
+    /// The rules then read the values. Without Apple Intelligence the rules do it all.
     private func send() async {
         composerError = nil
         let t = typed
+        if step == .paste {
+            text = composer
+            clearComposer()
+            goNext()
+            return
+        }
+        if WorkoutAI.isAvailable, let field = NewGoalView.aiFields[step] {
+            let earlier = pastSteps.compactMap { s in NewGoalView.aiFields[s].map { ($0, answer(s)) } }
+            let turn = await understand { await WorkoutAI.readTurn(t, question: ask(step), current: field, earlier: earlier) } ?? nil
+            if let turn {
+                await handle(turn, said: t)
+                return
+            }
+        }
         if let fixed = correct(t) {
             reply(t, fixed)
             return
@@ -580,30 +601,77 @@ struct NewGoalView: View {
             reply(t, explain(step))
             return
         }
-        // Free answers take anything, so first check it is not about an earlier question.
-        if [.level, .aim, .wishes].contains(step), mentionsEarlier(t), await correctWithAI(t) { return }
+        if await take(t) { clearComposer(); goNext() } else { reply(t, explain(step)) }
+    }
+
+    private static let aiFields: [Step: WorkoutAI.Field] = [
+        .name: .goalName, .trail: .trail, .date: .raceDate, .method: .scheduleHelp, .perWeek: .runsPerWeek,
+        .level: .level, .aim: .aim, .wishes: .wishes,
+    ]
+
+    /// Acts on what Apple Intelligence read: answer this question, change an earlier answer, or explain.
+    private func handle(_ turn: WorkoutAI.Turn, said t: String) async {
+        let target = turn.field.flatMap { f in NewGoalView.aiFields.first { $0.value == f }?.key }
+        let gives = turn.kind == .answer || turn.kind == .correction
+
+        // A change to an earlier answer. Without a usable new value, ask that question again.
+        if gives, let target, target != step, pastSteps.contains(target) {
+            if let said = await understand({ await change(target, to: [turn.value, t]) }) ?? nil {
+                reply(t, said)
+            } else {
+                jump(to: target)
+                reply(t, "Geen probleem, dan pas ik dat aan.")
+            }
+            return
+        }
+        // An answer to this question. Apple Intelligence sometimes calls "Pizza" or "weet ik nog niet"
+        // a question; without a question mark those count as answers.
+        let answers = target == step || (target == nil && step == .name)
+        let unsure = step == .name || NewGoalView.saysNo(t)
+        let asks = turn.kind == .question && (t.contains("?") || !unsure)
+        let ok = answers && !asks && (gives || unsure)
+        if ok {
+            // Free answers keep your own words; a name only when Apple Intelligence did not make it up.
+            let tries: [String] = switch step {
+            case .level, .aim, .wishes: [t]
+            case .name: t.lowercased().contains(turn.value.lowercased()) && !turn.value.isEmpty ? [turn.value] : [t]
+            default: [turn.value, t].filter { !$0.isEmpty }
+            }
+            for v in tries where await understand({ await take(v) }) ?? false {
+                clearComposer()
+                goNext()
+                return
+            }
+        }
+        reply(t, explain(step))
+    }
+
+    /// Reads an answer to the current question. False when it does not fit.
+    private func take(_ t: String) async -> Bool {
         switch step {
         case .name:
-            answerName(t, preset: false)
-            return
+            let match = goalPresets.first { $0.title.lowercased() == t.lowercased() }
+            ownName = match == nil
+            name = match?.title ?? t
+            return nameOK
         case .trail where NewGoalView.saysNo(t):
             trailKm = ""
             trailUp = ""
         case .trail:
             var r = NewGoalView.trail(from: t)
-            if r.km == nil && r.up == nil && NewGoalView.mentionsNumber(t) {
-                let ai = await understand { await WorkoutAI.readTrail(t) }
-                r = (ai?.km.map { String(format: "%g", $0).replacingOccurrences(of: ".", with: ",") }, ai?.up.map(String.init))
+            if r.km == nil && r.up == nil && NewGoalView.mentionsNumber(t), WorkoutAI.isAvailable {
+                let ai = await WorkoutAI.readTrail(t)
+                r = (ai.km.map { String(format: "%g", $0).replacingOccurrences(of: ".", with: ",") }, ai.up.map(String.init))
             }
-            guard r.km != nil || r.up != nil else { await notPlaced(t); return }
+            guard r.km != nil || r.up != nil else { return false }
             trailKm = r.km ?? ""
             trailUp = r.up ?? ""
         case .date where NewGoalView.saysNo(t):
             hasDate = false
         case .date:
             var parsed = NewGoalView.date(from: t) ?? NewGoalView.dateInText(t)
-            if parsed == nil && NewGoalView.mentionsDate(t) { parsed = await understand { await WorkoutAI.readDate(t) } ?? nil }
-            guard let d = parsed else { await notPlaced(t); return }
+            if parsed == nil && NewGoalView.mentionsDate(t) && WorkoutAI.isAvailable { parsed = await WorkoutAI.readDate(t) }
+            guard let d = parsed else { return false }
             bigDay = d
             hasDate = true
         case .method:
@@ -611,11 +679,11 @@ struct NewGoalView: View {
             if ["later", "nee", "nog niet", "niet nu"].contains(where: l.contains) { method = .later }
             else if ["heb er al", "heb al", "heb ik al", "zelf", "plak", "typ"].contains(where: l.contains) { method = .paste }
             else if ["ja", "graag", "help", "maak", "ai", "claude", "chatgpt", "prima", "oké", "ok"].contains(where: l.contains) { method = .ai }
-            else { await notPlaced(t); return }
+            else { return false }
         case .perWeek:
             var parsed = NewGoalView.count(from: t)
-            if parsed == nil && NewGoalView.mentionsNumber(t) { parsed = await understand { await WorkoutAI.readCount(t) } ?? nil }
-            guard let n = parsed, (1...7).contains(n) else { await notPlaced(t); return }
+            if parsed == nil && NewGoalView.mentionsNumber(t) && WorkoutAI.isAvailable { parsed = await WorkoutAI.readCount(t) }
+            guard let n = parsed, (1...7).contains(n) else { return false }
             perWeek = n
         case .level:
             level = t
@@ -632,13 +700,10 @@ struct NewGoalView: View {
             }
         case .wishes:
             ownWish = t
-        case .paste:
-            text = composer
         default:
-            break
+            return false
         }
-        clearComposer()
-        goNext()
+        return true
     }
 
     /// "Oeps, het is eigenlijk 15 december": changes an earlier answer and stays on this question.
@@ -693,49 +758,21 @@ struct NewGoalView: View {
         (.wishes, ["wens"]),
     ]
 
-    /// Words or a date that point at an earlier question.
-    private func mentionsEarlier(_ t: String) -> Bool {
-        let l = t.lowercased()
-        let done = Set(pastSteps)
-        return NewGoalView.dateInText(t) != nil || topics.contains { done.contains($0.0) && $0.1.contains(where: l.contains) }
-    }
-
-    /// The rules could not read this as an answer. Maybe it changes an earlier one;
-    /// otherwise Rondje explains the question.
-    private func notPlaced(_ t: String) async {
-        if await correctWithAI(t) { return }
-        reply(t, explain(step))
-    }
-
-    private static let aiFields: [Step: WorkoutAI.Field] = [
-        .name: .goalName, .trail: .trail, .date: .raceDate, .perWeek: .runsPerWeek, .level: .level, .aim: .aim, .wishes: .wishes,
-    ]
-
-    /// Apple Intelligence decides whether the message changes an earlier answer, and which one.
-    /// The rules then read the new value. Without a usable new value, Rondje asks that question again.
-    /// Returns false when it is not a correction, or Apple Intelligence is off.
-    private func correctWithAI(_ t: String) async -> Bool {
-        let earlier = pastSteps.compactMap { s in NewGoalView.aiFields[s].map { ($0, answer(s)) } }
-        guard let found = await understand({ await WorkoutAI.readCorrection(t, question: ask(step), earlier: earlier) }) ?? nil,
-              let target = NewGoalView.aiFields.first(where: { $0.value == found.field })?.key,
-              target != step, pastSteps.contains(target) else { return false }
-        if let said = await change(target, to: found.value) {
-            reply(t, said)
-        } else {
-            jump(to: target)
-            reply(t, "Geen probleem, dan pas ik dat aan.")
+    /// Puts a new value in an earlier answer, trying each text in turn ("4" from Apple Intelligence,
+    /// then your own words). Nil when none can be read, or nothing changes.
+    private func change(_ s: Step, to values: [String]) async -> String? {
+        for v in values where !v.isEmpty {
+            if let said = await change(s, to: v) { return said }
         }
-        return true
+        return nil
     }
 
-    /// Puts a new value in an earlier answer. Nil when it cannot be read, or is the same as before.
     private func change(_ s: Step, to value: String) async -> String? {
-        guard !value.isEmpty else { return nil }
         let before = answer(s)
         switch s {
         case .date:
             var d = NewGoalView.date(from: value) ?? NewGoalView.dateInText(value)
-            if d == nil && NewGoalView.mentionsDate(value) { d = await WorkoutAI.readDate(value) }
+            if d == nil && NewGoalView.mentionsDate(value) && WorkoutAI.isAvailable { d = await WorkoutAI.readDate(value) }
             guard let d else { return nil }
             bigDay = d
             hasDate = true
@@ -804,8 +841,9 @@ struct NewGoalView: View {
     /// Shows Rondje typing while Apple Intelligence reads the answer.
     private func understand<T>(_ work: () async -> T) async -> T? {
         guard WorkoutAI.isAvailable else { return nil }
+        let outer = understanding
         understanding = true
-        defer { understanding = false }
+        defer { if !outer { understanding = false } }
         return await work()
     }
 
