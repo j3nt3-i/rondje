@@ -58,13 +58,6 @@ struct ClaudePromptView: View {
 
     private var form: some View {
         Form {
-            Section {
-                LabeledContent("Doel", value: event.isEmpty ? "Nog geen naam" : event)
-                LabeledContent("De grote dag", value: raceDate.map { Format.shortDay($0) } ?? "Geen datum")
-            } footer: {
-                Text("Uit het vorige scherm. Pas het daar aan als het niet klopt.")
-            }
-
             Section("Over jou") {
                 Stepper("\(perWeek)x per week lopen", value: $perWeek, in: 1...7)
                 TextField("Niveau nu, bijv. 2x per week 5 km", text: $level, axis: .vertical)
