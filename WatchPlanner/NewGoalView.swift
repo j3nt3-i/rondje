@@ -181,12 +181,13 @@ struct NewGoalView: View {
             }
 
         case .level:
-            header("Wat loop je nu?", "Zo begint je schema op het goede niveau.")
-            ForEach(["Ik ben net begonnen", "Ik loop 5 km", "Ik loop 10 km", "Ik loop langer dan 10 km"], id: \.self) { choice in
-                option(nil, choice, nil, level == choice) { level = choice }
+            header("Wat lukt je nu?", "Hoe ver je loopt, en hoe zwaar dat voelt. Zo begint je schema op het goede niveau.")
+            ForEach(levels, id: \.title) { l in
+                let value = "\(l.title), \(l.sub.prefix(1).lowercased() + l.sub.dropFirst())"
+                option(nil, l.title, l.sub, level == value) { level = value }
             }
-            ownField("Of vertel het zelf, bijv. 2x per week 6 km", text: Binding(
-                get: { ["Ik ben net begonnen", "Ik loop 5 km", "Ik loop 10 km", "Ik loop langer dan 10 km"].contains(level) ? "" : level },
+            ownField("Of vertel het zelf, bijv. 2x per week 6 km, rustig", text: Binding(
+                get: { levels.contains { level.hasPrefix($0.title + ",") } ? "" : level },
                 set: { level = $0 }))
 
         case .aim:
@@ -391,6 +392,15 @@ struct NewGoalView: View {
         .frame(maxWidth: .infinity)
         .accessibilityHidden(true)
     }
+
+    private let levels: [(title: String, sub: String)] = [
+        ("Net begonnen", "Ik loop nog geen 5 km achter elkaar"),
+        ("5 km lukt", "Maar het kost nog flink moeite"),
+        ("5 km gaat makkelijk", "Ik kan nog wel verder"),
+        ("10 km lukt", "Met wat moeite"),
+        ("10 km gaat makkelijk", "Ook in een rustig tempo"),
+        ("Langer dan 10 km", "Ik loop regelmatig lange afstanden"),
+    ]
 
     private let goalPresets: [(icon: String, title: String, sub: String)] = [
         ("figure.run", "5 km", "Je eerste of snelste 5"),
