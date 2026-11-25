@@ -135,17 +135,15 @@ struct NewGoalView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
                     .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
             }
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+            FlowLayout(spacing: 10) {
                 ForEach(goalPresets, id: \.title) { g in
-                    GoalTile(icon: g.icon, hero: g.hero, title: g.title, sub: g.sub, color: g.color,
-                             isOn: !ownName && name == g.title) {
+                    GoalPill(icon: g.icon, title: g.title, isOn: !ownName && name == g.title) {
                         ownName = false
                         name = g.title
                         nameFocused = false
                     }
                 }
-                GoalTile(icon: "plus", hero: nil, title: "Anders, namelijk...", sub: "Je eigen wedstrijd", color: Color(white: 0.6),
-                         isOn: ownName, dashed: true) {
+                GoalPill(icon: "plus", title: "Anders, namelijk...", isOn: ownName) {
                     if !ownName { name = "" }
                     ownName = true
                     nameFocused = true
@@ -165,71 +163,67 @@ struct NewGoalView: View {
 
         case .method:
             header("Hoe maak je je schema?", "Je kunt het later altijd nog aanpassen.")
-            option("sparkles", "Met AI", "Beantwoord een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema.", method == .ai) { method = .ai }
-            option("doc.on.clipboard", "Zelf plakken of typen", "Je hebt al een schema, van een trainer, website of AI.", method == .paste) { method = .paste }
-            option("clock", "Later", "Maak eerst het doel. Trainingen voeg je later toe.", method == .later) { method = .later }
+            FlowLayout(spacing: 10) {
+                GoalPill(icon: "sparkles", title: "Met AI", isOn: method == .ai) { method = .ai }
+                GoalPill(icon: "doc.on.clipboard", title: "Zelf plakken of typen", isOn: method == .paste) { method = .paste }
+                GoalPill(icon: "clock", title: "Later", isOn: method == .later) { method = .later }
+            }
+            helper(method == .ai ? "Je beantwoordt een paar vragen. Je eigen AI, zoals Claude of ChatGPT, maakt het schema."
+                   : method == .paste ? "Je hebt al een schema, van een trainer, website of AI."
+                   : "Je maakt eerst het doel. Trainingen voeg je later toe.")
 
         case .perWeek:
             header("Hoe vaak wil je lopen?", "Per week.")
-            HStack(spacing: 12) {
+            FlowLayout(spacing: 10) {
                 ForEach(2...6, id: \.self) { n in
-                    Button { perWeek = n } label: {
-                        Text("\(n)x")
-                            .font(.system(.title2, design: .rounded).bold())
-                            .foregroundStyle(perWeek == n ? .black : .primary)
-                            .frame(maxWidth: .infinity, minHeight: 64)
-                            .background(perWeek == n ? Theme.accent : Theme.card, in: RoundedRectangle(cornerRadius: 18))
-                    }
-                    .buttonStyle(.plain)
+                    GoalPill(title: "\(n)x", isOn: perWeek == n) { perWeek = n }
                 }
             }
 
         case .level:
             header("Wat lukt je nu?", "Hoe ver je loopt, en hoe zwaar dat voelt. Zo begint je schema op het goede niveau.")
-            ForEach(levels, id: \.title) { l in
-                let value = "\(l.title), \(l.sub.prefix(1).lowercased() + l.sub.dropFirst())"
-                option(nil, l.title, l.sub, level == value) { level = value }
+            FlowLayout(spacing: 10) {
+                ForEach(levels, id: \.title) { l in
+                    GoalPill(title: l.title, isOn: level == levelValue(l)) { level = levelValue(l) }
+                }
+            }
+            if let chosen = levels.first(where: { level == levelValue($0) }) {
+                helper(chosen.sub)
             }
             ownField("Of vertel het zelf, bijv. 2x per week 6 km, rustig", text: Binding(
-                get: { levels.contains { level.hasPrefix($0.title + ",") } ? "" : level },
+                get: { levels.contains { level == levelValue($0) } ? "" : level },
                 set: { level = $0 }))
 
         case .aim:
             header("Wat wil je bereiken?", nil)
-            ForEach(["Uitlopen", "Een tijd neerzetten", "Sneller worden", "Fit blijven"], id: \.self) { choice in
-                if choice == "Een tijd neerzetten" && aim == choice {
-                    // The time goes right into the chosen card.
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text(choice).font(.headline)
-                            Spacer()
-                            Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(Theme.accent)
-                        }
-                        TextField("Welke tijd? Bijv. 1:20 of onder de 50 min", text: $aimTime)
-                            .font(.title3.bold())
-                            .focused($timeFocused)
-                            .submitLabel(.next)
-                            .onSubmit { goNext() }
-                            .task { timeFocused = true }
-                            .padding(14)
-                            .background(Color(white: 0.2), in: RoundedRectangle(cornerRadius: 12))
-                    }
-                    .padding(18)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
-                } else {
-                    option(nil, choice, nil, aim == choice) {
+            FlowLayout(spacing: 10) {
+                ForEach(["Uitlopen", "Een tijd neerzetten", "Sneller worden", "Fit blijven"], id: \.self) { choice in
+                    GoalPill(title: choice, isOn: aim == choice) {
                         aim = choice
                         if choice != "Een tijd neerzetten" { timeFocused = false }
                     }
                 }
             }
+            if aim == "Een tijd neerzetten" {
+                TextField("Welke tijd? Bijv. 1:20 of onder de 50 min", text: $aimTime)
+                    .font(.title3.bold())
+                    .focused($timeFocused)
+                    .task { timeFocused = true }
+                    .submitLabel(.next)
+                    .onSubmit { goNext() }
+                    .padding(16)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(Theme.accent, lineWidth: 2))
+            }
 
         case .wishes:
             header("Nog wensen?", "Kies wat je wilt, of sla deze stap over.")
-            chips(["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"],
-                  selected: wishes) { w in
-                if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
+            FlowLayout(spacing: 10) {
+                ForEach(["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"], id: \.self) { w in
+                    GoalPill(title: w, isOn: wishes.contains(w)) {
+                        if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
+                    }
+                }
             }
             ownField("Iets anders, bijv. nooit op woensdag", text: $ownWish)
 
@@ -419,6 +413,17 @@ struct NewGoalView: View {
         .accessibilityHidden(true)
     }
 
+    private func levelValue(_ l: (title: String, sub: String)) -> String {
+        "\(l.title), \(l.sub.prefix(1).lowercased() + l.sub.dropFirst())"
+    }
+
+    private func helper(_ text: String) -> some View {
+        Text(text)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+            .transition(.opacity)
+    }
+
     private let levels: [(title: String, sub: String)] = [
         ("Net begonnen", "Ik loop nog geen 5 km achter elkaar"),
         ("5 km lukt", "Maar het kost nog flink moeite"),
@@ -428,54 +433,15 @@ struct NewGoalView: View {
         ("Langer dan 10 km", "Ik loop regelmatig lange afstanden"),
     ]
 
-    private let goalPresets: [(icon: String, hero: String?, title: String, sub: String, color: Color)] = [
-        ("figure.run", "5", "5 km", "Je eerste of snelste", .cyan),
-        ("figure.run", "10", "10 km", "Een mooie klassieker", .green),
-        ("medal.fill", "21,1", "Halve marathon", "Uitdaging", .orange),
-        ("trophy.fill", "42,2", "Marathon", "De grote", .pink),
-        ("mountain.2.fill", nil, "Trailrun", "Onverhard en heuvels", .yellow),
-        ("sparkles", nil, "Beginnen met hardlopen", "Rustig opbouwen", .purple),
-        ("heart.fill", nil, "Fit blijven", "Zonder wedstrijd", .red),
+    private let goalPresets: [(icon: String, title: String)] = [
+        ("figure.run", "5 km"),
+        ("figure.run", "10 km"),
+        ("medal", "Halve marathon"),
+        ("trophy", "Marathon"),
+        ("mountain.2", "Trailrun"),
+        ("sparkles", "Beginnen met hardlopen"),
+        ("heart", "Fit blijven"),
     ]
-
-    private func option(_ icon: String?, _ title: String, _ text: String?, _ isOn: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 16) {
-                if let icon {
-                    Image(systemName: icon).font(.title2).foregroundStyle(Theme.accent).frame(width: 36)
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title).font(.headline).foregroundStyle(.primary)
-                    if let text { Text(text).font(.subheadline).foregroundStyle(.secondary) }
-                }
-                Spacer(minLength: 0)
-                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isOn ? Theme.accent : Color(white: 0.35))
-            }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
-            .overlay(RoundedRectangle(cornerRadius: 18).stroke(isOn ? Theme.accent : .clear, lineWidth: 2))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func chips(_ items: [String], selected: Set<String>, tap: @escaping (String) -> Void) -> some View {
-        FlowLayout(spacing: 10) {
-            ForEach(items, id: \.self) { item in
-                let on = selected.contains(item)
-                Button { tap(item) } label: {
-                    Text(item)
-                        .font(.subheadline.bold())
-                        .foregroundStyle(on ? .black : .primary)
-                        .padding(.horizontal, 16).padding(.vertical, 11)
-                        .background(on ? Theme.accent : Theme.card, in: Capsule())
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
 
     private func ownField(_ prompt: String, text: Binding<String>) -> some View {
         TextField(prompt, text: text, axis: .vertical)
@@ -600,75 +566,32 @@ struct NewGoalView: View {
     }
 }
 
-// MARK: - Goal tile
+// MARK: - Goal pill
 
-/// A playful, colored tile for picking a goal: a big number or icon, a soft gradient,
-/// a little bounce when pressed, and a lime ring when chosen.
-struct GoalTile: View {
-    let icon: String
-    let hero: String?
+/// A goal to pick: icon and name in a pill a little lighter than the background; lime when chosen.
+struct GoalPill: View {
+    var icon: String? = nil
     let title: String
-    let sub: String
-    let color: Color
     let isOn: Bool
-    var dashed = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top) {
-                    if let hero {
-                        HStack(alignment: .firstTextBaseline, spacing: 3) {
-                            Text(hero).font(.system(size: 40, weight: .heavy, design: .rounded))
-                            Text("km").font(.system(size: 15, weight: .bold, design: .rounded))
-                        }
-                        .foregroundStyle(color)
-                    } else {
-                        Image(systemName: icon)
-                            .font(.system(size: 26, weight: .bold))
-                            .foregroundStyle(color)
-                            .frame(width: 50, height: 50)
-                            .background(color.opacity(0.2), in: Circle())
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(isOn ? Theme.accent : color.opacity(0.4))
+            HStack(spacing: 10) {
+                if let icon {
+                    Image(systemName: icon)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(isOn ? .black : Theme.accent)
                 }
-                Spacer(minLength: 0)
-                // "5 km" already shows big; then the short line becomes the title.
-                let repeatsHero = hero.map { title.hasPrefix($0 + " ") } ?? false
-                Text(repeatsHero ? sub : title)
+                Text(title)
                     .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-                if !repeatsHero {
-                    Text(sub)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(1)
-                }
+                    .foregroundStyle(isOn ? .black : .primary)
             }
-            .padding(14)
-            .frame(maxWidth: .infinity, minHeight: 140, alignment: .topLeading)
-            .background(
-                LinearGradient(colors: [color.opacity(dashed ? 0.08 : 0.32), color.opacity(0.06)],
-                               startPoint: .topLeading, endPoint: .bottomTrailing),
-                in: RoundedRectangle(cornerRadius: 22)
-            )
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 22))
-            .overlay {
-                RoundedRectangle(cornerRadius: 22)
-                    .strokeBorder(isOn ? Theme.accent : color.opacity(0.45),
-                                  style: StrokeStyle(lineWidth: isOn ? 3 : 1.5, dash: dashed && !isOn ? [7, 5] : []))
-            }
-            .scaleEffect(isOn ? 1.02 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: isOn)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 15)
+            .background(isOn ? Theme.accent : Theme.card, in: Capsule())
         }
         .buttonStyle(BounceStyle())
-        .accessibilityLabel("\(title), \(sub)")
         .accessibilityAddTraits(isOn ? .isSelected : [])
     }
 }
