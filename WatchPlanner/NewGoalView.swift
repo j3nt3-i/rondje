@@ -89,6 +89,8 @@ struct NewGoalView: View {
     @State private var weekStart = WorkoutText.defaultWeekStart()
     @State private var planNow = true
     @State private var saveError: String?
+    @State private var scannedText: String?   // the pasted text Rondje finished scanning
+    @State private var shown = 0              // workouts shown so far after the scan
 
     var body: some View {
         NavigationStack {
@@ -135,6 +137,8 @@ struct NewGoalView: View {
                 .onChange(of: streamed) { proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: streaming) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: scannedText) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                .onChange(of: shown) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
             }
             .safeAreaInset(edge: .bottom) {
                 if dockReady {
@@ -346,6 +350,7 @@ struct NewGoalView: View {
             Button(action: edit) {
                 Text(text)
                     .font(text.count > 200 ? .callout : .body)
+                    .lineLimit(text.count > 200 ? 8 : nil) // a pasted schedule: Rondje shows it whole while scanning
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.black)
                     .padding(.horizontal, 14).padding(.vertical, 10)
@@ -400,9 +405,53 @@ struct NewGoalView: View {
             .padding(16)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
         case .review:
-            reviewCard
+            if !scanning {
+                reviewCard
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
         default:
             EmptyView()
+        }
+    }
+
+    /// Rondje is still scanning the pasted schedule, so the result waits.
+    private var scanning: Bool {
+        step == .review && method != .later
+            && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && scannedText != text
+    }
+
+    /// The workouts known so far, for the icons that pop up during the scan.
+    private var scanKinds: [WorkoutKind] {
+        let raceDate = hasDate ? dayString(bigDay) : nil
+        let workouts: [PlannedWorkout] = switch (result, reading) {
+        case (.success(let e)?, _): e.workouts
+        case (_, .success(let p)?): p.schedule.workouts
+        default: []
+        }
+        return workouts.map { WorkoutKind($0, scheduleName: trimmedName, raceDate: raceDate) }
+    }
+
+    /// After the scan: the result, then the workouts one by one.
+    private func finishScan() {
+        withAnimation(.snappy) {
+            scannedText = text
+            shown = 0
+        }
+        guard case .success(let e) = result, !e.workouts.isEmpty else {
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            return
+        }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
+        let n = e.workouts.count
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(350))
+            let pause = min(0.09, 1.4 / Double(n))
+            for i in 1...n {
+                withAnimation(.spring(duration: 0.4, bounce: 0.3)) { shown = i }
+                try? await Task.sleep(for: .seconds(pause))
+            }
+            // Everything stays visible, also when the list changes later ("Week 1 begint op").
+            shown = .max
         }
     }
 
@@ -410,7 +459,11 @@ struct NewGoalView: View {
     @ViewBuilder
     private var reviewStatus: some View {
         if method != .later {
-            if isReading || thinking {
+            if scanning {
+                ScanCard(text: text, kinds: scanKinds, finished: reading != nil && !isReading && !thinking) { finishScan() }
+                    .id(text) // a new paste scans again
+                    .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .top)))
+            } else if isReading || thinking {
                 HStack(spacing: 10) {
                     typingBubble
                     Text(isReading ? "Schema lezen..." : "Apple Intelligence leest mee...")
@@ -454,11 +507,15 @@ struct NewGoalView: View {
                     ForEach(skipped, id: \.self) { problem in
                         Label(problem, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange)
                     }
-                    ForEach(e.workouts) { w in
+                    ForEach(e.workouts.prefix(shown)) { w in
                         WorkoutRow(workout: w, kind: WorkoutKind(w, scheduleName: trimmedName, raceDate: hasDate ? dayString(bigDay) : nil),
                                    isPast: ScheduleDates.isPast(w.date))
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    Toggle("Meteen op Watch zetten", isOn: $planNow)
+                    if shown >= e.workouts.count {
+                        Toggle("Meteen op Watch zetten", isOn: $planNow)
+                            .transition(.opacity)
+                    }
                 case .failure:
                     Button("Opnieuw plakken", systemImage: "doc.on.clipboard") { step = .paste }
                         .bold()
@@ -1424,7 +1481,7 @@ struct NewGoalView: View {
     // MARK: - Create
 
     private var canCreate: Bool {
-        guard nameOK, !isReading, !thinking else { return false }
+        guard nameOK, !isReading, !thinking, !scanning else { return false }
         if method == .later { return true }
         if case .success = result { return true }
         return false
@@ -1556,5 +1613,115 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             row = max(row, size.height)
         }
+    }
+}
+
+// MARK: - Scanning the pasted schedule
+
+/// The pasted schedule with a light sweeping down over it while Rondje reads it. Text the light
+/// passed lights up, and a workout icon pops up for each workout found. Calls onDone once a sweep
+/// is over and reading has finished, so it never flashes by.
+struct ScanCard: View {
+    let text: String
+    let kinds: [WorkoutKind]
+    let finished: Bool
+    let onDone: () -> Void
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var start = Date()
+    @State private var textHeight: CGFloat = 0
+    private let window: CGFloat = 190
+
+    /// One sweep over the whole text: longer for a long schedule, but never under 1.8 s.
+    private var sweep: Double { reduceMotion ? 0.8 : min(3.4, max(1.8, Double(textHeight) / 240)) }
+
+    var body: some View {
+        TimelineView(.animation) { ctx in
+            let elapsed = ctx.date.timeIntervalSince(start)
+            let firstSweep = elapsed < sweep
+            // Keeps sweeping while Apple Intelligence is still reading.
+            let p = reduceMotion ? 1 : (firstSweep ? elapsed / sweep : (elapsed / sweep).truncatingRemainder(dividingBy: 1))
+            let found = firstSweep && !reduceMotion ? min(kinds.count, Int(p * Double(kinds.count) + 0.5)) : kinds.count
+            let visible = textHeight > 0 ? min(window, textHeight) : window
+            let scroll = max(0, textHeight - window) * p
+            let lineY = visible * p
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 8) {
+                    Image(systemName: "text.viewfinder")
+                        .foregroundStyle(Theme.accent)
+                        .symbolEffect(.pulse, isActive: !reduceMotion)
+                    Text("Schema scannen")
+                        .font(.subheadline.bold())
+                    Spacer()
+                    Text(found == 1 ? "1 training" : "\(found) trainingen")
+                        .font(.subheadline.bold().monospacedDigit())
+                        .foregroundStyle(Theme.accent)
+                        .contentTransition(.numericText(value: Double(found)))
+                }
+
+                ZStack(alignment: .top) {
+                    textLayer(.white.opacity(0.28), scroll: scroll)
+                        .background(GeometryReader { g in
+                            Color.clear
+                                .onAppear { textHeight = g.size.height }
+                                .onChange(of: g.size.height) { _, h in textHeight = h }
+                        })
+                    // What the light has passed is read.
+                    textLayer(.white, scroll: scroll)
+                        .mask(alignment: .top) { Rectangle().frame(height: max(0, lineY)) }
+                    if !reduceMotion {
+                        LinearGradient(colors: [Theme.accent.opacity(0), Theme.accent.opacity(0.3)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .frame(height: 56)
+                            .offset(y: lineY - 56)
+                        Capsule()
+                            .fill(Theme.accent)
+                            .frame(height: 2.5)
+                            .shadow(color: Theme.accent, radius: 8)
+                            .shadow(color: Theme.accent.opacity(0.6), radius: 16)
+                            .offset(y: lineY - 1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(height: visible, alignment: .top)
+                .clipped()
+
+                if found > 0 {
+                    FlowLayout(spacing: 6) {
+                        ForEach(0..<found, id: \.self) { i in
+                            KindIcon(kind: kinds[i], size: 28)
+                                .transition(.scale(scale: 0.3).combined(with: .opacity))
+                        }
+                    }
+                }
+            }
+            .animation(.spring(duration: 0.35, bounce: 0.45), value: found)
+            .sensoryFeedback(.impact(flexibility: .soft, intensity: 0.55), trigger: found)
+        }
+        .padding(16)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18))
+        .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Theme.accent.opacity(0.25), lineWidth: 1))
+        .task(id: finished) {
+            guard finished else { return }
+            // Let the current sweep finish, then a short beat before the result.
+            let e = Date().timeIntervalSince(start)
+            let end = max(sweep, (e / sweep).rounded(.up) * sweep) + 0.25
+            try? await Task.sleep(for: .seconds(end - e))
+            guard !Task.isCancelled else { return }
+            onDone()
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Rondje leest je schema")
+    }
+
+    private func textLayer(_ color: Color, scroll: CGFloat) -> some View {
+        Text(text)
+            .font(.system(size: 12, design: .monospaced))
+            .foregroundStyle(color)
+            .lineSpacing(3)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .offset(y: -scroll)
     }
 }
