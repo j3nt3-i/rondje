@@ -569,8 +569,8 @@ struct NewGoalView: View {
                 GoalPill(icon: g.icon, title: g.title, isOn: false) { answerName(g.title, preset: true) }
             }
         case .level:
-            ForEach(levels, id: \.title) { l in
-                GoalPill(title: l.title, isOn: false) { level = levelValue(l); typedAnswers[.level] = nil; goNext() }
+            ForEach(levels, id: \.self) { l in
+                GoalPill(title: l, isOn: false) { level = l; typedAnswers[.level] = nil; goNext() }
             }
         case .aim:
             ForEach(aimChoices, id: \.self) { choice in
@@ -1290,18 +1290,8 @@ struct NewGoalView: View {
         .accessibilityLabel("Verstuur")
     }
 
-    private func levelValue(_ l: (title: String, sub: String)) -> String {
-        "\(l.title), \(l.sub.prefix(1).lowercased() + l.sub.dropFirst())"
-    }
-
-    private let levels: [(title: String, sub: String)] = [
-        ("Net begonnen", "Ik loop nog geen 5 km achter elkaar"),
-        ("5 km lukt", "Maar het kost nog flink moeite"),
-        ("5 km gaat makkelijk", "Ik kan nog wel verder"),
-        ("10 km lukt", "Met wat moeite"),
-        ("10 km gaat makkelijk", "Ook in een rustig tempo"),
-        ("Langer dan 10 km", "Ik loop regelmatig lange afstanden"),
-    ]
+    /// Your level is exactly the pill you tap, nothing added.
+    private let levels = ["Net begonnen", "5 km lukt", "5 km gaat makkelijk", "10 km lukt", "10 km gaat makkelijk", "Langer dan 10 km"]
 
     private let goalPresets: [(icon: String, title: String)] = [
         ("figure.run", "5 km"),
