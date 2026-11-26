@@ -324,7 +324,25 @@ enum WorkoutText {
         let text: String
         let problem: String?    // set when it was skipped
         let workoutID: String?  // set when it was read but may be wrong
+        var note: String? = nil
         var key: String { date + "|" + text }
+    }
+
+    private static let noteLabel = #"^(?:uitleg|toelichting|beschrijving|omschrijving|inleiding|notitie|tip|tips|note|notes|info|description|why)\s*:\s*"#
+
+    /// Takes the "uitleg: ..." lines out of a workout's lines. Several are joined into one note.
+    static func splitNote(_ lines: [String]) -> (lines: [String], note: String?) {
+        var rest: [String] = []
+        var notes: [String] = []
+        for line in lines {
+            if let r = line.range(of: noteLabel, options: [.regularExpression, .caseInsensitive]) {
+                let text = line[r.upperBound...].trimmingCharacters(in: .whitespaces)
+                if !text.isEmpty { notes.append(text) }
+            } else {
+                rest.append(line)
+            }
+        }
+        return (rest, notes.isEmpty ? nil : notes.joined(separator: " "))
     }
 
     /// Like program, but keeps going past workouts it cannot read and lists them.
@@ -345,8 +363,12 @@ enum WorkoutText {
         var current: (date: String, rest: String, lines: [String])?
 
         func finish() throws {
-            guard let c = current else { return }
+            guard var c = current else { return }
             current = nil
+            // "uitleg: Zoek een heuvel..." is the note for this workout, not part of it.
+            let split = splitNote(c.lines)
+            c.lines = split.lines
+            let note = split.note
             // The rest of the header line is the name, unless the lines below hold no
             // workout ("Succes!") and the header line itself does ("Di: 8 km rustig").
             let below = c.lines.joined(separator: "\n")
@@ -360,11 +382,12 @@ enum WorkoutText {
                 let r = try read(date: c.date, name: name.isEmpty ? "x" : name, text: bodyText)
                 var w = r.workout
                 if name.isEmpty { w.name = autoName(date: c.date, for: w, text: bodyText) }
+                w.note = note
                 workouts.append(w)
-                if r.unsure { doubts.append(Doubt(date: c.date, name: name, text: bodyText, problem: nil, workoutID: w.id)) }
+                if r.unsure { doubts.append(Doubt(date: c.date, name: name, text: bodyText, problem: nil, workoutID: w.id, note: note)) }
             } catch {
                 doubts.append(Doubt(date: c.date, name: name, text: bodyText,
-                                    problem: "\(Format.shortDay(c.date)): \(error.localizedDescription)", workoutID: nil))
+                                    problem: "\(Format.shortDay(c.date)): \(error.localizedDescription)", workoutID: nil, note: note))
             }
         }
 
@@ -448,7 +471,8 @@ enum WorkoutText {
     static func programText(for e: TrainingSchedule) -> String {
         var parts = [e.name]
         for w in e.workouts {
-            parts.append("\(dayLine(w.date)): \(w.name)\n" + written(for: w))
+            let note = w.note.map { "uitleg: \($0)\n" } ?? ""
+            parts.append("\(dayLine(w.date)): \(w.name)\n" + note + written(for: w))
         }
         return parts.joined(separator: "\n\n")
     }
@@ -491,19 +515,21 @@ enum WorkoutText {
         Maak een hardloopschema voor mij.
         \(about.joined(separator: "\n"))
 
-        Geef het schema zonder uitleg, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
+        Geef alleen het schema, zonder tekst ervoor of erna, zodat ik het in mijn app kan plakken. Gebruik dit formaat:
 
         \(name.isEmpty ? "Naam van je doel" : name)
 
-        2026-12-01 Di intervallen
+        2026-12-01 Di heuvels
+        uitleg: Zoek een heuvel waar je ongeveer een minuut tegenop kunt lopen. Loop stevig omhoog met korte passen en actieve armen, en jog rustig terug naar beneden. Zo worden je benen sterker voor het klimmen.
         warmup 10 min z2
-        5x 3 min z4 / 2 min z2
+        6x 1 min z4 / 2 min z2
         cooldown
 
         2026-12-03 Do duurloop
+        uitleg: Rustig en lang, je moet makkelijk kunnen praten. Dit bouwt je uithoudingsvermogen op.
         10 km z2
 
-        Elke training begint met een datum en een korte naam. Daaronder per regel een warmup, herhalingen ("5x hard / herstel"), een gewone loop of een cooldown. Doelen als 45 sec, 3 min, 8 km, 400 m of open. Hartslagzone z1 tot z5 erachter.
+        Elke training begint met een datum en een korte naam. Dan een regel die begint met uitleg: met in 2 of 3 zinnen wat ik ga doen, hoe het moet voelen en waarom. Noem praktische dingen, zoals waar ik heuvels of een baan zoek. Daaronder per regel een warmup, herhalingen ("5x hard / herstel"), een gewone loop of een cooldown. Doelen als 45 sec, 3 min, 8 km, 400 m of open. Hartslagzone z1 tot z5 erachter.
         """
     }
 

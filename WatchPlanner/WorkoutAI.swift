@@ -78,6 +78,7 @@ enum WorkoutAI {
                   r.usedAI else { continue }
             var w = r.workout
             if d.name.isEmpty { w.name = WorkoutText.autoName(date: d.date, for: w, text: d.text) }
+            w.note = d.note
             found[d.key] = w
         }
         return found

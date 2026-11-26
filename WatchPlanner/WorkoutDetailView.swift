@@ -58,6 +58,16 @@ struct WorkoutDetailView: View {
                 .listRowBackground(Color.clear)
             }
 
+            if let note = workout.note, !note.isEmpty {
+                Section("Wat ga je doen") {
+                    Text(note)
+                        .font(.body)
+                        .lineSpacing(3)
+                        .textSelection(.enabled)
+                        .padding(.vertical, 4)
+                }
+            }
+
             Section("Opbouw") {
                 ForEach(workout.stepLines) { StepLineView(line: $0) }
             }

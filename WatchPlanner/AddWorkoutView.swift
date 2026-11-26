@@ -13,6 +13,7 @@ struct AddWorkoutView: View {
     @State private var date = Date()
     @State private var name = ""
     @State private var text = ""
+    @State private var note = ""
     @State private var planNow = true
     @State private var reading: Result<(workout: PlannedWorkout, usedAI: Bool), Error>?
     @State private var thinking = false
@@ -83,6 +84,15 @@ struct AddWorkoutView: View {
                     Text("Schrijf het op zoals je het zou zeggen. Rustig, tempo, hard en sprint worden hartslagzones, en je kunt ook zelf een zone noemen, zoals z2." + (WorkoutAI.unavailableReason.map { " " + $0 } ?? ""))
                 }
 
+                Section {
+                    TextField("Mag leeg", text: $note, axis: .vertical)
+                        .lineLimit(2...8)
+                } header: {
+                    Text("Uitleg")
+                } footer: {
+                    Text("Wat je gaat doen en waarom, bijvoorbeeld wat voor heuvel je zoekt. Staat bovenaan bij de training.")
+                }
+
                 if result != nil || thinking {
                     Section("Zo wordt hij") {
                         if thinking {
@@ -150,6 +160,7 @@ struct AddWorkoutView: View {
         guard let w = editing else { return }
         date = ScheduleDates.day(w.date) ?? date
         name = w.name
+        note = w.note ?? ""
         text = WorkoutText.written(for: w)
     }
 
@@ -224,6 +235,8 @@ struct AddWorkoutView: View {
         return reading.flatMap { r in
             var w = r.workout
             w.name = title
+            let n = note.trimmingCharacters(in: .whitespacesAndNewlines)
+            w.note = n.isEmpty ? nil : n
             if existingIDs.contains(w.id) {
                 return .failure(ScheduleError(message: "Er staat al een training met deze naam op die dag."))
             }

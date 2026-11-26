@@ -17,6 +17,8 @@ struct PlannedWorkout: Codable, Equatable, Identifiable {
     var warmup: StepSpec?
     var blocks: [BlockSpec]?
     var cooldown: StepSpec?
+    /// What you are going to do and why, in plain words, from your AI or yourself.
+    var note: String? = nil
 
     var id: String { "\(date) \(name)" }
 }
