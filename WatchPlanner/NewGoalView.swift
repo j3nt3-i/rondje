@@ -99,7 +99,8 @@ struct NewGoalView: View {
     // The show after pasting: your bubble grows to the whole screen and turns into workouts.
     private enum ShowPhase { case off, bubble, grown, blocks, done }
     @State private var show: ShowPhase = .off
-    @State private var pasteFrame: CGRect = .zero
+    @State private var pasteFrame: CGRect = .zero   // the chat field, where the show grows from
+    @State private var showStarted = Date()
     @State private var skipShow = false
     @State private var neutral = false       // the bubble's lime has turned to the black screen
 
@@ -117,13 +118,7 @@ struct NewGoalView: View {
                         ForEach(pastSteps, id: \.self) { s in
                             botBubbles(question(s), at: s)
                             correctionBubbles(at: s)
-                            if s == .paste {
-                                // The show starts from this bubble, so it hides while the show runs.
-                                userBubble(typedAnswers[s] ?? answer(s), measure: true) { jump(to: s) }
-                                    .opacity(show == .off ? 1 : 0)
-                            } else {
-                                userBubble(typedAnswers[s] ?? answer(s)) { jump(to: s) }
-                            }
+                            userBubble(typedAnswers[s] ?? answer(s)) { jump(to: s) }
                         }
                         if streaming {
                             botBubbles(streamed, at: step)
@@ -222,7 +217,7 @@ struct NewGoalView: View {
                 // Back from the AI app: the next step is pasting the answer.
                 if phase == .active && openedApp && step == .openApp { step = .paste }
             }
-            .onPreferenceChange(PasteFrameKey.self) { pasteFrame = $0 }
+            .onPreferenceChange(PasteFrameKey.self) { if $0 != .zero { pasteFrame = $0 } }
         }
         .overlay { showOverlay }
         .coordinateSpace(name: "goal")
@@ -385,7 +380,7 @@ struct NewGoalView: View {
             .padding(.vertical, 4)
     }
 
-    private func userBubble(_ text: String, measure: Bool = false, edit: @escaping () -> Void) -> some View {
+    private func userBubble(_ text: String, edit: @escaping () -> Void) -> some View {
         HStack {
             Spacer(minLength: 60)
             Button(action: edit) {
@@ -396,13 +391,6 @@ struct NewGoalView: View {
                     .foregroundStyle(.black)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(Theme.accent, in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20))
-                    .background {
-                        if measure {
-                            GeometryReader { g in
-                                Color.clear.preference(key: PasteFrameKey.self, value: g.frame(in: .named("goal")))
-                            }
-                        }
-                    }
             }
             .buttonStyle(BounceStyle())
             .accessibilityHint("Tik om dit antwoord te veranderen")
@@ -466,39 +454,52 @@ struct NewGoalView: View {
         step == .review && method != .later && reading != nil && !isReading && !thinking ? text : ""
     }
 
-    /// After pasting: your bubble grows to the whole screen, your text splits per workout, and
-    /// each part turns into its workout card: slow at first, then faster. It ends there, with
-    /// the button to add the goal. Tap to skip ahead.
-    private func runShow() async {
-        guard !morphTrigger.isEmpty, morphedText != text else { return }
+    /// Right when you paste: the chat field grows to the whole screen with your text in it,
+    /// while Rondje reads it. Your text never shows in the chat first.
+    private func startShow() {
+        guard !reduceMotion else { return }
+        composerFocused = false
         morphed = 0
         skipShow = false
         neutral = false
+        showStarted = .now
+        show = .bubble
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(30))
+            withAnimation(.spring(duration: 0.6, bounce: 0.08)) { show = .grown }
+            withAnimation(.easeOut(duration: 0.35)) { neutral = true }
+        }
+    }
+
+    /// Once the text is read: it splits per workout, and each part turns into its card,
+    /// slow at first, then faster. It ends there, with the button to add the goal. Tap to skip.
+    private func runShow() async {
+        guard !morphTrigger.isEmpty, morphedText != text else { return }
         guard case .success(let e) = result, !e.workouts.isEmpty else {
-            withAnimation(.snappy) { morphedText = text }
+            // The chat says what went wrong, with a button to paste again.
+            withAnimation(.easeInOut(duration: 0.35)) {
+                show = .off
+                morphedText = text
+            }
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             return
         }
-        guard !reduceMotion, pasteFrame != .zero else {
+        guard show != .off else {
             withAnimation(.snappy) { morphedText = text }
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             return
         }
         let n = e.workouts.count
-        // Your message sits in the chat for a moment first.
-        await showPause(0.35)
-        show = .bubble
-        try? await Task.sleep(for: .milliseconds(40))
-        withAnimation(.spring(duration: 0.6, bounce: 0.08)) { show = .grown }
-        withAnimation(.easeOut(duration: 0.3).delay(0.05)) { neutral = true }
-        await showPause(0.65)
+        morphed = 0
+        // The screen finishes growing, and your text stays readable for a moment.
+        await showPause(max(0, 1.0 - Date().timeIntervalSince(showStarted)))
         withAnimation(.easeInOut(duration: 0.35)) { show = .blocks }
         await showPause(0.5)
         let tap = UIImpactFeedbackGenerator(style: .soft)
         // Slow at first, so you see what happens, then faster and faster.
         var pause = 0.8
         for i in 1...n {
-            if skipShow || Task.isCancelled { break }
+            if skipShow || Task.isCancelled || show == .off { break }
             withAnimation(.spring(duration: max(0.3, pause * 0.8), bounce: 0.18)) {
                 morphed = i
                 flash = e.workouts[i - 1].id
@@ -508,6 +509,7 @@ struct NewGoalView: View {
             pause = max(0.09, pause * 0.72)
         }
         if Task.isCancelled { show = .off; return }
+        guard show != .off else { return }
         withAnimation(.spring(duration: 0.45, bounce: 0.15)) {
             morphed = .max
             flash = nil
@@ -515,6 +517,16 @@ struct NewGoalView: View {
             morphedText = text
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// The cross: closes the screen, back to the chat with everything that was read.
+    private func closeShow() {
+        skipShow = true
+        withAnimation(.easeInOut(duration: 0.35)) {
+            show = .off
+            flash = nil
+            if reading != nil, !isReading, !thinking { morphedText = text }
+        }
     }
 
     /// A pause in the show, skipped when you tapped to skip.
@@ -530,7 +542,10 @@ struct NewGoalView: View {
             GeometryReader { outer in
                 GeometryReader { g in
                     let origin = g.frame(in: .named("goal")).origin
-                    let start = pasteFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+                    // From the chat field; without it, from where the field would be.
+                    let start = pasteFrame == .zero
+                        ? CGRect(x: 16, y: g.size.height - outer.safeAreaInsets.bottom - 64, width: g.size.width - 32, height: 48)
+                        : pasteFrame.offsetBy(dx: -origin.x, dy: -origin.y)
                     let grown = show != .bubble
                     let f = grown ? CGRect(origin: .zero, size: g.size) : start
                     showContent(grown: grown, insets: outer.safeAreaInsets)
@@ -549,8 +564,8 @@ struct NewGoalView: View {
         let count = min(morphed, workouts.count)
         let top = insets.top + 64
         return ZStack(alignment: .topLeading) {
-            // Lime bubble to a black screen with a soft lime glow, like the launch video.
-            Rectangle().fill(neutral ? Color.black : Theme.accent)
+            // The chat field grows into a black screen with a soft lime glow, like the launch video.
+            Rectangle().fill(neutral ? Color.black : Theme.pill)
             RadialGradient(colors: [Theme.accent.opacity(0.16), .clear], center: .top, startRadius: 0, endRadius: 420)
                 .opacity(neutral ? 1 : 0)
                 .allowsHitTesting(false)
@@ -559,10 +574,10 @@ struct NewGoalView: View {
                 // Your text as you pasted it. It keeps its width, so it does not jump while the screen grows.
                 Text(text)
                     .font(.callout)
-                    .foregroundStyle(neutral ? Color.white.opacity(0.7) : Color.black)
-                    .frame(width: max(0, pasteFrame.width - 28), alignment: .leading)
-                    .padding(.leading, grown ? 24 : 14)
-                    .padding(.top, grown ? top : 10)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .frame(width: max(200, pasteFrame.width - 32), alignment: .leading)
+                    .padding(.leading, grown ? 24 : 16)
+                    .padding(.top, grown ? top : 12)
                     .transition(.opacity)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
@@ -637,7 +652,22 @@ struct NewGoalView: View {
                 .transition(.opacity)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : 20))
+        .overlay(alignment: .topTrailing) {
+            if grown {
+                Button(action: closeShow) {
+                    Image(systemName: "xmark")
+                        .font(.body.bold())
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(.white.opacity(0.14), in: Circle())
+                }
+                .accessibilityLabel("Sluit")
+                .padding(.top, insets.top + 10)
+                .padding(.trailing, 16)
+                .transition(.opacity)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : 22))
         .contentShape(Rectangle())
         .onTapGesture { if !done { skipShow = true } }
         .accessibilityLabel(done ? "" : "Rondje maakt je trainingen. Tik om over te slaan.")
@@ -665,12 +695,6 @@ struct NewGoalView: View {
             bigButton("Voeg doel toe", "checkmark") { create() }
                 .disabled(!canCreate)
                 .opacity(canCreate ? 1 : 0.4)
-            Button("Terug naar de chat") {
-                withAnimation(.easeInOut(duration: 0.4)) { show = .off }
-            }
-            .font(.subheadline.bold())
-            .foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity)
         }
         .padding(.horizontal, 20)
         .padding(.top, 16)
@@ -852,6 +876,11 @@ struct NewGoalView: View {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField(placeholder, text: $composer, axis: .vertical)
                         .focused($composerFocused)
+                        .background {
+                            GeometryReader { g in
+                                Color.clear.preference(key: PasteFrameKey.self, value: g.frame(in: .named("goal")))
+                            }
+                        }
                         .submitLabel(.send)
                         .onSubmit { if canSend && pending == nil && !botTyping && !streaming { Task { await send() } } }
                         .lineLimit(1...(step == .paste ? 8 : 4))
@@ -905,6 +934,7 @@ struct NewGoalView: View {
                     text = s
                     typedAnswers[.paste] = s.trimmingCharacters(in: .whitespacesAndNewlines)
                     clearComposer()
+                    startShow()
                     step = .review
                 }
             }
@@ -970,6 +1000,7 @@ struct NewGoalView: View {
         if step == .paste {
             text = raw
             typedAnswers[.paste] = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            startShow()
             goNext()
             return
         }
