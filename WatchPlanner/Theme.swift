@@ -222,6 +222,8 @@ struct WorkoutRow: View {
     var onWatch: Bool? = nil
     /// Added without a date through Apple's preview.
     var custom = false
+    /// The run you did for it, from Apple Health.
+    var done: DoneRun? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -235,13 +237,23 @@ struct WorkoutRow: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
-            if let status {
+            if let done {
+                HStack(spacing: 4) {
+                    Image(systemName: "checkmark.circle.fill")
+                    Text(done.short)
+                }
+                .font(.caption.bold())
+                .foregroundStyle(Theme.accent)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("Gedaan, \(done.short)")
+            } else if let status {
                 Text(status.text)
                     .font(.caption.bold())
                     .foregroundStyle(status.color)
             }
         }
-        .opacity(isPast ? 0.4 : 1)
+        // What is behind you fades, except what you did.
+        .opacity(isPast && done == nil ? 0.4 : 1)
     }
 
     private var displayName: String { workout.shownName }

@@ -6,6 +6,7 @@ import UIKit
 struct EventsView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(Planner.self) private var planner
+    @Environment(HealthLog.self) private var health
 
     @State private var showNewEvent = false
     @State private var toDelete: TrainingSchedule?
@@ -70,6 +71,36 @@ struct EventsView: View {
                     }
                 }
 
+                if health.canAsk {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Vink je trainingen vanzelf af", systemImage: "checkmark.circle.fill")
+                                .font(.headline)
+                            Text("Rondje kijkt in Apple Health welke loopjes je hebt gedaan. Rondje leest alleen en slaat niets op.")
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            HStack(spacing: 16) {
+                                Button {
+                                    Task { await health.connect() }
+                                } label: {
+                                    Text("Koppel Apple Health")
+                                        .font(.subheadline.bold())
+                                        .foregroundStyle(.black)
+                                        .padding(.horizontal, 16)
+                                        .padding(.vertical, 9)
+                                        .background(Theme.accent, in: Capsule())
+                                }
+                                .buttonStyle(.borderless)
+                                Button("Niet nu") { withAnimation { health.declined = true } }
+                                    .font(.subheadline)
+                                    .buttonStyle(.borderless)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(.vertical, 6)
+                    }
+                }
+
             }
             .alert("\(toDelete?.name ?? "Doel") verwijderen?", isPresented: Binding(
                 get: { toDelete != nil },
@@ -96,7 +127,8 @@ struct EventsView: View {
     private var nextWorkout: (TrainingSchedule, PlannedWorkout)? {
         store.events
             .flatMap { e in e.workouts.map { (e, $0) } }
-            .filter { !ScheduleDates.isPast($0.1.date) }
+            // Not what is behind you, and not what you already ran today.
+            .filter { !ScheduleDates.isPast($0.1.date) && health.done[$0.1.id] == nil }
             .min { $0.1.date < $1.1.date }
     }
 
@@ -123,6 +155,7 @@ struct EventsView: View {
         let total = e.workouts.count
         let done = e.workouts.filter { ScheduleDates.isPast($0.date) }.count
         let onWatch = e.workouts.filter { planner.onWatchIDs.contains($0.id) }.count
+        let ran = e.workouts.filter { health.done[$0.id] != nil }.count
         let race = e.raceDate.flatMap(ScheduleDates.day)
 
         return HStack(spacing: 14) {
@@ -136,6 +169,7 @@ struct EventsView: View {
                 }
                 Text([
                     "\(total) trainingen",
+                    ran > 0 ? "\(ran) gedaan" : nil,
                     onWatch > 0 ? "\(onWatch) op Watch" : nil,
                 ].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption)

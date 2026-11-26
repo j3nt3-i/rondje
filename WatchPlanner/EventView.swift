@@ -12,6 +12,7 @@ struct EventView: View {
 
     @Environment(ScheduleStore.self) private var store
     @Environment(Planner.self) private var planner
+    @Environment(HealthLog.self) private var health
     @Environment(\.dismiss) private var dismiss
 
     @State private var showAdd = false
@@ -90,7 +91,8 @@ struct EventView: View {
                                 kind: WorkoutKind(w, scheduleName: event.name, raceDate: event.raceDate),
                                 isPast: ScheduleDates.isPast(w.date),
                                 onWatch: planner.onWatchIDs.contains(w.id),
-                                custom: planner.customIDs.contains(w.id)
+                                custom: planner.customIDs.contains(w.id),
+                                done: health.done[w.id]
                             )
                         }
                         .swipeActions {
@@ -128,6 +130,11 @@ struct EventView: View {
                         UIPasteboard.general.string = WorkoutText.programText(for: event)
                         message = Message(title: "Gekopieerd",
                                           text: "Het hele schema staat op je klembord. Handig om aan je eigen AI te geven om het aan te passen.")
+                    }
+                    if health.canConnect {
+                        Button("Koppel Apple Health", systemImage: "heart") {
+                            Task { await health.connect() }
+                        }
                     }
                     Button("Verwijder doel", systemImage: "trash", role: .destructive) {
                         confirmDelete = true

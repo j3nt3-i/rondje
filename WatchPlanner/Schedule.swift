@@ -67,6 +67,11 @@ enum ScheduleDates {
         dayFormatter.date(from: string)
     }
 
+    /// The day of a moment, as "yyyy-MM-dd".
+    static func string(_ date: Date) -> String {
+        dayFormatter.string(from: date)
+    }
+
     /// "07:00" -> (7, 0)
     static func time(_ string: String) -> (hour: Int, minute: Int)? {
         let parts = string.split(separator: ":").compactMap { Int($0) }

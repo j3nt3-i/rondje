@@ -8,6 +8,7 @@ struct WorkoutDetailView: View {
 
     @Environment(Planner.self) private var planner
     @Environment(ScheduleStore.self) private var store
+    @Environment(HealthLog.self) private var health
     @Environment(\.dismiss) private var dismiss
     @State private var showPreview = false
     @State private var showEdit = false
@@ -36,6 +37,11 @@ struct WorkoutDetailView: View {
                                 .buttonBorderShape(.capsule)
                         }
                     }
+                    if health.done[workout.id] != nil {
+                        Label("Gedaan", systemImage: "checkmark.circle.fill")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(Theme.accent)
+                    }
                     if planner.onWatchIDs.contains(workout.id) {
                         Label(ScheduleDates.watchVisibleFrom(workout.date).map {
                                   "Toegevoegd, verschijnt \(Format.shortDay($0).lowercased()) op je Watch"
@@ -48,7 +54,7 @@ struct WorkoutDetailView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.secondary)
                         }
-                    } else if ScheduleDates.isPast(workout.date) {
+                    } else if ScheduleDates.isPast(workout.date), health.done[workout.id] == nil {
                         Label("Geweest", systemImage: "clock.arrow.circlepath")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -56,6 +62,23 @@ struct WorkoutDetailView: View {
                 }
                 .padding(.vertical, 6)
                 .listRowBackground(Color.clear)
+            }
+
+            if let run = health.done[workout.id] {
+                Section("Wat je deed") {
+                    LabeledContent("Wanneer", value: run.start.formatted(
+                        .dateTime.weekday(.wide).day().month(.wide).hour().minute().locale(Locale(identifier: "nl_NL"))))
+                    if let km = run.km, km > 0.05 {
+                        LabeledContent("Afstand", value: DoneRun.kmText(km))
+                    }
+                    LabeledContent("Tijd", value: DoneRun.timeText(run.minutes))
+                    if let pace = run.pace {
+                        LabeledContent("Tempo", value: pace)
+                    }
+                    if let hr = run.heartRate {
+                        LabeledContent("Gemiddelde hartslag", value: "\(Int(hr.rounded())) per minuut")
+                    }
+                }
             }
 
             if let note = workout.note, !note.isEmpty {

@@ -44,7 +44,7 @@ enum WorkoutBuilder {
     }
 
     /// Same date and name give the same id, so a rerun replaces cleanly.
-    private static func stableID(for workout: PlannedWorkout) -> UUID {
+    static func stableID(for workout: PlannedWorkout) -> UUID {
         var bytes = Array(SHA256.hash(data: Data(workout.id.utf8)).prefix(16))
         bytes[6] = (bytes[6] & 0x0F) | 0x50 // version 5 style
         bytes[8] = (bytes[8] & 0x3F) | 0x80 // RFC 4122 variant
