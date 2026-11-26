@@ -100,13 +100,11 @@ struct NewGoalView: View {
     // turns into workouts there.
     private enum ShowPhase { case off, bubble, blocks, done }
     @State private var show: ShowPhase = .off
-    @State private var pasteFrame: CGRect = .zero   // the chat field, as it is now
-    @State private var showFrom: CGRect = .zero     // the chat field when you pasted: the show grows from it
     @State private var showWorkouts: [PlannedWorkout] = []   // read right at pasting, for the parts on screen
     @State private var showRun = 0                  // counts pastes, so the same text can run again
     @State private var showStarted = Date()
     @State private var skipShow = false
-    @State private var neutral = false              // the field's gray has turned to the black screen
+    @State private var neutral = false              // the panel is up and its lime glow is on
     @State private var landed = false               // your schedule's parts have slid in
     @State private var readText: String?            // the text the last reading belongs to
 
@@ -223,10 +221,8 @@ struct NewGoalView: View {
                 // Back from the AI app: the next step is pasting the answer.
                 if phase == .active && openedApp && step == .openApp { step = .paste }
             }
-            .onPreferenceChange(PasteFrameKey.self) { if $0 != .zero { pasteFrame = $0 } }
         }
         .overlay { showOverlay }
-        .coordinateSpace(name: "goal")
     }
 
     // MARK: - Flow
@@ -461,8 +457,9 @@ struct NewGoalView: View {
             ? "\(showRun)|\(text)" : ""
     }
 
-    /// Right when you paste: the chat field grows to the whole screen, and your schedule
-    /// slides in there, already in parts per workout. Your text never shows in the chat first.
+    /// Right when you paste: an empty black panel grows up from the bottom edge to the whole
+    /// screen. Only when it is there does your schedule slide in, already in parts per workout.
+    /// Nothing of the pasted text shows before that, in the chat or on the panel.
     private func startShow() {
         showRun += 1
         morphedText = nil
@@ -472,7 +469,6 @@ struct NewGoalView: View {
               !parsed.schedule.workouts.isEmpty else { return }
         sources = parsed.sources
         showWorkouts = parsed.schedule.workouts
-        showFrom = pasteFrame
         composerFocused = false
         morphed = 0
         skipShow = false
@@ -482,10 +478,10 @@ struct NewGoalView: View {
         show = .bubble
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(30))
-            withAnimation(.spring(duration: 0.55, bounce: 0.05)) {
-                show = .blocks
-                neutral = true
-            }
+            withAnimation(.spring(duration: 0.5, bounce: 0)) { show = .blocks }
+            // The panel is up: now the glow, the header and your schedule come in.
+            try? await Task.sleep(for: .milliseconds(460))
+            withAnimation(.easeOut(duration: 0.5)) { neutral = true }
             landed = true // each part animates in with its own small delay
         }
     }
@@ -511,7 +507,7 @@ struct NewGoalView: View {
         let n = e.workouts.count
         morphed = 0
         // The screen has grown and your schedule has landed: a moment to take it in.
-        await showPause(max(0, 1.6 - Date().timeIntervalSince(showStarted)))
+        await showPause(max(0, 2.1 - Date().timeIntervalSince(showStarted)))
         let tap = UIImpactFeedbackGenerator(style: .soft)
         // Slow at first, so you see what happens, then faster and faster.
         var pause = 0.8
@@ -564,14 +560,13 @@ struct NewGoalView: View {
         if show != .off {
             GeometryReader { outer in
                 GeometryReader { g in
-                    let origin = g.frame(in: .named("goal")).origin
-                    // From the chat field; without it, from where the field would be.
-                    let start = showFrom == .zero
-                        ? CGRect(x: 16, y: g.size.height - outer.safeAreaInsets.bottom - 64, width: g.size.width - 32, height: 48)
-                        : showFrom.offsetBy(dx: -origin.x, dy: -origin.y)
+                    // The panel is as wide as the screen and stands on its bottom edge:
+                    // it starts with no height and grows straight up.
                     let grown = show != .bubble
-                    let f = grown ? CGRect(origin: .zero, size: g.size) : start
-                    showContent(grown: grown, size: f.size, full: g.size, field: start.size, insets: outer.safeAreaInsets)
+                    let f = grown
+                        ? CGRect(origin: .zero, size: g.size)
+                        : CGRect(x: 0, y: g.size.height, width: g.size.width, height: 0)
+                    showContent(grown: grown, size: f.size, full: g.size, insets: outer.safeAreaInsets)
                         .position(x: f.midX, y: f.midY)
                 }
                 .ignoresSafeArea()
@@ -580,16 +575,18 @@ struct NewGoalView: View {
         }
     }
 
-    /// The growing surface. The screen's content has its full size from the start and is only
-    /// uncovered, so nothing reflows while it grows.
-    private func showContent(grown: Bool, size: CGSize, full: CGSize, field: CGSize, insets: EdgeInsets) -> some View {
+    /// The growing panel: plain black, nothing on it while it grows. The screen's content has
+    /// its full size and final place from the start (it hangs on the panel's fixed bottom edge),
+    /// so nothing moves or reflows; it only comes in once the panel is up.
+    private func showContent(grown: Bool, size: CGSize, full: CGSize, insets: EdgeInsets) -> some View {
         let done = show == .done
+        let corner: CGFloat = grown ? 0 : 28
         return Rectangle()
-            // The chat field's gray turns into a black screen with a soft lime glow, like the launch video.
-            .fill(neutral ? Color.black : Theme.pill)
+            .fill(Color.black)
             .frame(width: size.width, height: size.height)
-            .overlay(alignment: .topLeading) {
+            .overlay(alignment: .bottomLeading) {
                 ZStack(alignment: .topLeading) {
+                    // A soft lime glow at the top, like the launch video.
                     RadialGradient(colors: [Theme.accent.opacity(0.16), .clear], center: .top, startRadius: 0, endRadius: 420)
                         .opacity(neutral ? 1 : 0)
                         .allowsHitTesting(false)
@@ -597,20 +594,7 @@ struct NewGoalView: View {
                 }
                 .frame(width: full.width, height: full.height, alignment: .topLeading)
             }
-            .overlay(alignment: .topLeading) {
-                // What you pasted, as it sat in the field. It fades right away as the screen opens.
-                Text(text)
-                    .font(.body)
-                    .foregroundStyle(.white)
-                    .frame(width: max(0, field.width - 32), height: max(0, field.height - 24), alignment: .topLeading)
-                    .clipped()
-                    .padding(.leading, 16)
-                    .padding(.top, 12)
-                    .opacity(grown ? 0 : 1)
-                    .animation(.easeOut(duration: 0.16), value: grown)
-                    .allowsHitTesting(false)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : 22))
+            .clipShape(UnevenRoundedRectangle(topLeadingRadius: corner, topTrailingRadius: corner))
             .contentShape(Rectangle())
             .onTapGesture { if !done { skipShow = true } }
             .accessibilityLabel(done ? "" : "Rondje maakt je trainingen. Tik om over te slaan.")
@@ -922,11 +906,6 @@ struct NewGoalView: View {
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField(placeholder, text: $composer, axis: .vertical)
                         .focused($composerFocused)
-                        .background {
-                            GeometryReader { g in
-                                Color.clear.preference(key: PasteFrameKey.self, value: g.frame(in: .named("goal")))
-                            }
-                        }
                         .submitLabel(.send)
                         .onSubmit { if canSend && pending == nil && !botTyping && !streaming { Task { await send() } } }
                         .lineLimit(1...(step == .paste ? 8 : 4))
@@ -1962,14 +1941,5 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             row = max(row, size.height)
         }
-    }
-}
-
-/// Where your paste bubble is, so the show can grow out of it.
-private struct PasteFrameKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
     }
 }
