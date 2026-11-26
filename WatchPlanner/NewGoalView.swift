@@ -88,7 +88,6 @@ struct NewGoalView: View {
     @State private var aiWorkouts: [String: PlannedWorkout] = [:]
     @State private var thinking = false
     @State private var weekStart = WorkoutText.defaultWeekStart()
-    @State private var planNow = true
     @State private var saveError: String?
     // Your pasted text turning into workouts, one by one.
     @State private var sources: [String: String] = [:]   // workout id -> the lines it came from
@@ -96,6 +95,7 @@ struct NewGoalView: View {
     @State private var morphed = 0                       // workouts counted as turned so far
     @State private var sweep: CGFloat = 0                // how far down the layer of cards has come
     @State private var sweeping = false                  // the lime edge of that layer shows
+    @State private var following = true                  // a long list scrolls along under the edge
     @State private var listHeight: CGFloat = 0           // the part of the list you can see
     @ScaledMetric(relativeTo: .headline) private var rowHeight: CGFloat = 88
     // The show after pasting: the chat field grows to the whole screen and your schedule
@@ -475,6 +475,7 @@ struct NewGoalView: View {
         morphed = 0
         sweep = 0
         sweeping = false
+        following = true
         skipShow = false
         neutral = false
         landed = false
@@ -513,39 +514,51 @@ struct NewGoalView: View {
         morphed = 0
         // The screen has grown and your schedule has landed: a moment to take it in.
         await showPause(max(0, 2.1 - Date().timeIntervalSince(showStarted)))
-        // Where each row ends, and how far the layer has to come: past the last row,
-        // or past the bottom of what you can see when the list is longer than that.
+        // The layer comes all the way down, past the last row. A list longer than the
+        // screen scrolls along, so you see every workout turn.
         func rowEnd(_ i: Int) -> CGFloat { Self.listTop + CGFloat(i) * rowHeight + CGFloat(i - 1) * Self.rowGap }
         let end = rowEnd(n) + 30
-        let reach = min(end, (listHeight > 0 ? listHeight : 600) + 30)
-        let seen = max(1, (1...n).filter { rowEnd($0) <= reach }.count)
-        let duration = min(3.6, max(1.8, Double(seen) * 0.42))
+        let long = listHeight > 0 && listContentHeight(n) > listHeight
+        // More workouts take longer, but not in step: the first ones go slowly, the rest faster.
+        let duration = min(9, max(1.8, 1.2 * Double(n).squareRoot()))
         if !skipShow, show != .off {
             let c = Self.sweepCurve
             sweeping = true
-            withAnimation(.timingCurve(c.x1, c.y1, c.x2, c.y2, duration: duration)) { sweep = reach }
+            withAnimation(.timingCurve(c.x1, c.y1, c.x2, c.y2, duration: duration)) { sweep = end }
             // Count along, each time the edge passes the end of a row.
             let tap = UIImpactFeedbackGenerator(style: .soft)
             let started = Date()
-            for i in 1...seen {
-                let at = duration * Self.sweepTime(for: Double(rowEnd(i) / reach))
+            for i in 1...n {
+                let at = duration * Self.sweepTime(for: Double(rowEnd(i) / end))
                 await showPause(max(0, at - Date().timeIntervalSince(started)))
                 if skipShow || Task.isCancelled || show == .off { break }
-                withAnimation(.snappy(duration: 0.2)) { morphed = i == seen ? n : i * n / seen }
-                tap.impactOccurred(intensity: 0.5)
+                withAnimation(.snappy(duration: 0.2)) { morphed = i }
+                tap.impactOccurred(intensity: 0.45)
             }
             await showPause(max(0, duration - Date().timeIntervalSince(started)))
         }
         if Task.isCancelled { show = .off; return }
         guard show != .off else { return }
-        withAnimation(.spring(duration: 0.45, bounce: 0.15)) {
-            sweep = end // also what is further down, or all of it when you skipped
+        // All made. A long list rolls back up to the first workout.
+        withAnimation(.easeInOut(duration: long ? 0.7 : 0.3)) {
+            sweep = end
+            following = false
             sweeping = false
             morphed = .max
+        }
+        if long { try? await Task.sleep(for: .seconds(0.7)) }
+        if Task.isCancelled { show = .off; return }
+        guard show != .off else { return }
+        withAnimation(.spring(duration: 0.45, bounce: 0.15)) {
             show = .done
             morphedText = text
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// How high the whole list of rows is.
+    private func listContentHeight(_ n: Int) -> CGFloat {
+        Self.listTop + CGFloat(n) * rowHeight + CGFloat(max(0, n - 1)) * Self.rowGap + 24
     }
 
     private static let listTop: CGFloat = 12
@@ -689,58 +702,81 @@ struct NewGoalView: View {
             .offset(y: landed ? 0 : 14)
             .animation(.spring(duration: 0.5, bounce: 0.1).delay(0.12), value: landed)
 
-            // Two layers with the same rows: your text below, the cards on top. The cards
-            // show above the edge that comes down, your text below it.
-            ScrollView {
-                ZStack(alignment: .top) {
-                    VStack(spacing: Self.rowGap) {
-                        ForEach(Array(workouts.enumerated()), id: \.element.id) { i, w in
-                            sourceText(w)
-                                // Your schedule slides in line by line once the screen is open.
-                                .opacity(landed ? 1 : 0)
-                                .offset(y: landed ? 0 : 22)
-                                .animation(.spring(duration: 0.5, bounce: 0.12).delay(0.2 + min(Double(i), 10) * 0.05), value: landed)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, Self.listTop)
-                    .modifier(SweepMask(y: sweep, above: false))
-                    .accessibilityHidden(true)
-
-                    VStack(spacing: Self.rowGap) {
-                        ForEach(workouts) { w in
-                            workoutCard(w, height: rowHeight)
-                        }
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.top, Self.listTop)
-                    .modifier(SweepMask(y: sweep, above: true))
-
-                    // The edge of the layer: a lime line with a short trail above it.
-                    VStack(spacing: 0) {
-                        LinearGradient(colors: [.clear, Theme.accent.opacity(0.2)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 44)
-                        Rectangle()
-                            .fill(Theme.accent)
-                            .frame(height: 2)
-                            .shadow(color: Theme.accent.opacity(0.9), radius: 8)
-                    }
-                    .offset(y: sweep - 46)
-                    .opacity(sweeping ? 1 : 0)
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
+            if done {
+                // Made: a list to scroll through and check.
+                ScrollView {
+                    cardRows(workouts)
+                        .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
+                .scrollIndicators(.hidden)
+                .transition(.identity)
+            } else {
+                // Two layers with the same rows: your text below, the cards on top. The cards
+                // show above the edge that comes down, your text below it. A list longer
+                // than the screen scrolls along under the edge.
+                let most = listHeight > 0 ? max(0, listContentHeight(workouts.count) - listHeight) : 0
+                Color.clear
+                    .overlay(alignment: .top) {
+                        ZStack(alignment: .top) {
+                            textRows(workouts)
+                                .modifier(SweepLayer(y: sweep, follow: following ? 1 : 0, hold: listHeight * 0.55, most: most, height: listHeight, part: .text))
+                                .accessibilityHidden(true)
+                            cardRows(workouts)
+                                .modifier(SweepLayer(y: sweep, follow: following ? 1 : 0, hold: listHeight * 0.55, most: most, height: listHeight, part: .cards))
+                            sweepEdge
+                                .modifier(SweepLayer(y: sweep, follow: following ? 1 : 0, hold: listHeight * 0.55, most: most, height: listHeight, part: .edge))
+                        }
+                    }
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
+                    .transition(.identity)
             }
-            .scrollIndicators(.hidden)
-            .scrollDisabled(!done)
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
 
             if done {
                 showFooter(bottom: insets.bottom)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
+    }
+
+    /// Your pasted text, one row per workout.
+    private func textRows(_ workouts: [PlannedWorkout]) -> some View {
+        VStack(spacing: Self.rowGap) {
+            ForEach(Array(workouts.enumerated()), id: \.element.id) { i, w in
+                sourceText(w)
+                    // Your schedule slides in line by line once the screen is open.
+                    .opacity(landed ? 1 : 0)
+                    .offset(y: landed ? 0 : 22)
+                    .animation(.spring(duration: 0.5, bounce: 0.12).delay(0.2 + min(Double(i), 10) * 0.05), value: landed)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, Self.listTop)
+    }
+
+    /// The same rows as workout cards.
+    private func cardRows(_ workouts: [PlannedWorkout]) -> some View {
+        VStack(spacing: Self.rowGap) {
+            ForEach(workouts) { w in
+                workoutCard(w, height: rowHeight)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, Self.listTop)
+    }
+
+    /// The edge of the layer of cards: a lime line with a short trail above it.
+    private var sweepEdge: some View {
+        VStack(spacing: 0) {
+            LinearGradient(colors: [.clear, Theme.accent.opacity(0.2)], startPoint: .top, endPoint: .bottom)
+                .frame(height: 44)
+            Rectangle()
+                .fill(Theme.accent)
+                .frame(height: 2)
+                .shadow(color: Theme.accent.opacity(0.9), radius: 8)
+        }
+        .opacity(sweeping ? 1 : 0)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 
     /// The end of the show: what to check, and the button that adds the goal.
@@ -757,8 +793,6 @@ struct NewGoalView: View {
                 DatePicker("Week 1 begint op", selection: $weekStart, displayedComponents: .date)
                     .font(.subheadline)
             }
-            Toggle("Meteen op Watch zetten", isOn: $planNow)
-                .tint(Theme.accent)
             if let saveError {
                 Text("Opslaan lukt niet: \(saveError)").font(.footnote).foregroundStyle(.orange)
             }
@@ -884,10 +918,6 @@ struct NewGoalView: View {
                     }
                     if morphDone {
                         ForEach(e.workouts) { w in workoutCard(w) }
-                    }
-                    if morphDone {
-                        Toggle("Meteen op Watch zetten", isOn: $planNow)
-                            .transition(.opacity)
                     }
                 case .failure:
                     Button("Opnieuw plakken", systemImage: "doc.on.clipboard") { step = .paste }
@@ -1875,7 +1905,8 @@ struct NewGoalView: View {
             saveError = error.localizedDescription
             return
         }
-        if planNow && !workouts.isEmpty {
+        // New workouts always go to the Watch right away.
+        if !workouts.isEmpty {
             Task { await planner.put(workouts, time: goal.defaultTime, title: "\(goal.name) toegevoegd", events: store.events) }
         }
         dismiss()
@@ -1994,27 +2025,49 @@ struct FlowLayout: Layout {
 }
 
 
-/// Shows a view only above, or only below, a line that comes down. The two fade into each
-/// other over a short band just above the line.
-private struct SweepMask: ViewModifier, Animatable {
-    var y: CGFloat
-    let above: Bool
+/// One part of the sweep: your text (shows below the edge), the cards (above it) or the
+/// edge itself. The edge comes down the list; once it is past the middle of the screen, a
+/// longer list scrolls up under it instead, until its end is in sight.
+private struct SweepLayer: ViewModifier, Animatable {
+    enum Part { case text, cards, edge }
 
-    var animatableData: CGFloat {
-        get { y }
-        set { y = newValue }
+    var y: CGFloat          // the edge, measured down the whole list
+    var follow: CGFloat     // 1 while the list scrolls along, 0 once it is back at its top
+    let hold: CGFloat       // where on screen the edge stays while the list scrolls
+    let most: CGFloat       // how far the list can scroll
+    let height: CGFloat     // the part of the list you can see
+    let part: Part
+
+    var animatableData: AnimatablePair<CGFloat, CGFloat> {
+        get { AnimatablePair(y, follow) }
+        set { y = newValue.first; follow = newValue.second }
     }
 
     func body(content: Content) -> some View {
-        let band: CGFloat = 6
-        content.mask(alignment: .top) {
-            VStack(spacing: 0) {
-                (above ? Color.black : Color.clear)
-                    .frame(height: max(0, y - band))
-                LinearGradient(colors: above ? [.black, .clear] : [.clear, .black], startPoint: .top, endPoint: .bottom)
-                    .frame(height: band)
-                (above ? Color.clear : Color.black)
-            }
+        let scroll = follow * min(max(0, y - hold), most)
+        let line = y - scroll // the edge on screen
+        switch part {
+        case .edge:
+            content
+                .offset(y: line - 46)
+                .frame(height: height, alignment: .top)
+                .clipped()
+        case .text, .cards:
+            let above = part == .cards
+            let band: CGFloat = 6 // the two fade into each other just above the edge
+            content
+                .offset(y: -scroll)
+                .frame(height: height, alignment: .top)
+                .clipped()
+                .mask(alignment: .top) {
+                    VStack(spacing: 0) {
+                        (above ? Color.black : Color.clear)
+                            .frame(height: max(0, line - band))
+                        LinearGradient(colors: above ? [.black, .clear] : [.clear, .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: band)
+                        (above ? Color.clear : Color.black)
+                    }
+                }
         }
     }
 }
