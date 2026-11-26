@@ -93,9 +93,11 @@ struct NewGoalView: View {
     // Your pasted text turning into workouts, one by one.
     @State private var sources: [String: String] = [:]   // workout id -> the lines it came from
     @State private var morphedText: String?              // the pasted text that is done turning
-    @State private var morphed = 0                       // workouts turned so far
-    @State private var flash: String?                    // the workout that just turned
-    @Namespace private var morphSpace
+    @State private var morphed = 0                       // workouts counted as turned so far
+    @State private var sweep: CGFloat = 0                // how far down the layer of cards has come
+    @State private var sweeping = false                  // the lime edge of that layer shows
+    @State private var listHeight: CGFloat = 0           // the part of the list you can see
+    @ScaledMetric(relativeTo: .headline) private var rowHeight: CGFloat = 88
     // The show after pasting: the chat field grows to the whole screen and your schedule
     // turns into workouts there.
     private enum ShowPhase { case off, bubble, blocks, done }
@@ -154,9 +156,9 @@ struct NewGoalView: View {
                 .onChange(of: streamed) { proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: streaming) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
-                .onChange(of: flash) { _, id in
-                    // Follow the workout that is turning; at the end, the result.
-                    withAnimation(.snappy) { proxy.scrollTo(id ?? "bottom", anchor: id == nil ? .bottom : .center) }
+                .onChange(of: morphedText) {
+                    // The show is over: down to the result.
+                    withAnimation(.snappy) { proxy.scrollTo("bottom", anchor: .bottom) }
                 }
             }
             .safeAreaInset(edge: .bottom) {
@@ -471,6 +473,8 @@ struct NewGoalView: View {
         showWorkouts = parsed.schedule.workouts
         composerFocused = false
         morphed = 0
+        sweep = 0
+        sweeping = false
         skipShow = false
         neutral = false
         landed = false
@@ -486,8 +490,9 @@ struct NewGoalView: View {
         }
     }
 
-    /// Once the text is read: each part turns into its workout card, slow at first, then
-    /// faster. It ends there, with the button to add the goal. Tap to skip.
+    /// Once the text is read: a layer of workout cards comes down over your text in one
+    /// smooth pass, top to bottom. Halfway, the top is cards and the bottom still text.
+    /// It ends with the button to add the goal. Tap to skip.
     private func runShow() async {
         guard !morphTrigger.isEmpty, morphedText != text else { return }
         guard case .success(let e) = result, !e.workouts.isEmpty else {
@@ -508,28 +513,56 @@ struct NewGoalView: View {
         morphed = 0
         // The screen has grown and your schedule has landed: a moment to take it in.
         await showPause(max(0, 2.1 - Date().timeIntervalSince(showStarted)))
-        let tap = UIImpactFeedbackGenerator(style: .soft)
-        // Slow at first, so you see what happens, then faster and faster.
-        var pause = 0.8
-        for i in 1...n {
-            if skipShow || Task.isCancelled || show == .off { break }
-            withAnimation(.spring(duration: max(0.3, pause * 0.8), bounce: 0.18)) {
-                morphed = i
-                flash = e.workouts[i - 1].id
+        // Where each row ends, and how far the layer has to come: past the last row,
+        // or past the bottom of what you can see when the list is longer than that.
+        func rowEnd(_ i: Int) -> CGFloat { Self.listTop + CGFloat(i) * rowHeight + CGFloat(i - 1) * Self.rowGap }
+        let end = rowEnd(n) + 30
+        let reach = min(end, (listHeight > 0 ? listHeight : 600) + 30)
+        let seen = max(1, (1...n).filter { rowEnd($0) <= reach }.count)
+        let duration = min(3.6, max(1.8, Double(seen) * 0.42))
+        if !skipShow, show != .off {
+            let c = Self.sweepCurve
+            sweeping = true
+            withAnimation(.timingCurve(c.x1, c.y1, c.x2, c.y2, duration: duration)) { sweep = reach }
+            // Count along, each time the edge passes the end of a row.
+            let tap = UIImpactFeedbackGenerator(style: .soft)
+            let started = Date()
+            for i in 1...seen {
+                let at = duration * Self.sweepTime(for: Double(rowEnd(i) / reach))
+                await showPause(max(0, at - Date().timeIntervalSince(started)))
+                if skipShow || Task.isCancelled || show == .off { break }
+                withAnimation(.snappy(duration: 0.2)) { morphed = i == seen ? n : i * n / seen }
+                tap.impactOccurred(intensity: 0.5)
             }
-            tap.impactOccurred(intensity: max(0.35, pause))
-            await showPause(pause)
-            pause = max(0.09, pause * 0.72)
+            await showPause(max(0, duration - Date().timeIntervalSince(started)))
         }
         if Task.isCancelled { show = .off; return }
         guard show != .off else { return }
         withAnimation(.spring(duration: 0.45, bounce: 0.15)) {
+            sweep = end // also what is further down, or all of it when you skipped
+            sweeping = false
             morphed = .max
-            flash = nil
             show = .done
             morphedText = text
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    private static let listTop: CGFloat = 12
+    private static let rowGap: CGFloat = 10
+    /// The pace of the layer coming down: a slow start, then steady.
+    private static let sweepCurve = (x1: 0.4, y1: 0.0, x2: 0.75, y2: 0.8)
+
+    /// The moment (0...1) at which the layer, on its curve, has come this far (0...1).
+    private static func sweepTime(for progress: Double) -> Double {
+        func bezier(_ s: Double, _ a: Double, _ b: Double) -> Double {
+            3 * (1 - s) * (1 - s) * s * a + 3 * (1 - s) * s * s * b + s * s * s
+        }
+        for i in 0...400 {
+            let s = Double(i) / 400
+            if bezier(s, sweepCurve.y1, sweepCurve.y2) >= progress { return bezier(s, sweepCurve.x1, sweepCurve.x2) }
+        }
+        return 1
     }
 
     /// The cross: closes the screen, back to the chat with everything that was read.
@@ -537,7 +570,7 @@ struct NewGoalView: View {
         skipShow = true
         withAnimation(.easeInOut(duration: 0.35)) {
             show = .off
-            flash = nil
+            sweeping = false
             if reading != nil, !isReading, !thinking { morphedText = text }
         }
     }
@@ -651,41 +684,57 @@ struct NewGoalView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, insets.top + 28)
-            .padding(.bottom, 16)
+            .padding(.bottom, 6)
             .opacity(landed ? 1 : 0)
             .offset(y: landed ? 0 : 14)
             .animation(.spring(duration: 0.5, bounce: 0.1).delay(0.12), value: landed)
 
-            ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 10) {
+            // Two layers with the same rows: your text below, the cards on top. The cards
+            // show above the edge that comes down, your text below it.
+            ScrollView {
+                ZStack(alignment: .top) {
+                    VStack(spacing: Self.rowGap) {
                         ForEach(Array(workouts.enumerated()), id: \.element.id) { i, w in
-                            Group {
-                                if i < morphed {
-                                    workoutCard(w)
-                                        .matchedGeometryEffect(id: w.id, in: morphSpace)
-                                        .transition(.blurReplace)
-                                } else {
-                                    sourceBlock(w)
-                                        .matchedGeometryEffect(id: w.id, in: morphSpace)
-                                        .transition(.blurReplace)
-                                }
-                            }
-                            .id(w.id)
-                            // Your schedule slides in part by part while the screen opens.
-                            .opacity(landed ? 1 : 0)
-                            .offset(y: landed ? 0 : 22)
-                            .animation(.spring(duration: 0.5, bounce: 0.12).delay(0.2 + min(Double(i), 10) * 0.05), value: landed)
+                            sourceText(w)
+                                // Your schedule slides in line by line once the screen is open.
+                                .opacity(landed ? 1 : 0)
+                                .offset(y: landed ? 0 : 22)
+                                .animation(.spring(duration: 0.5, bounce: 0.12).delay(0.2 + min(Double(i), 10) * 0.05), value: landed)
                         }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.bottom, 24)
+                    .padding(.top, Self.listTop)
+                    .modifier(SweepMask(y: sweep, above: false))
+                    .accessibilityHidden(true)
+
+                    VStack(spacing: Self.rowGap) {
+                        ForEach(workouts) { w in
+                            workoutCard(w, height: rowHeight)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, Self.listTop)
+                    .modifier(SweepMask(y: sweep, above: true))
+
+                    // The edge of the layer: a lime line with a short trail above it.
+                    VStack(spacing: 0) {
+                        LinearGradient(colors: [.clear, Theme.accent.opacity(0.2)], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 44)
+                        Rectangle()
+                            .fill(Theme.accent)
+                            .frame(height: 2)
+                            .shadow(color: Theme.accent.opacity(0.9), radius: 8)
+                    }
+                    .offset(y: sweep - 46)
+                    .opacity(sweeping ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
                 }
-                .scrollIndicators(.hidden)
-                .onChange(of: flash) { _, id in
-                    if let id { withAnimation(.easeInOut(duration: 0.45)) { proxy.scrollTo(id, anchor: .center) } }
-                }
+                .padding(.bottom, 24)
             }
+            .scrollIndicators(.hidden)
+            .scrollDisabled(!done)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
 
             if done {
                 showFooter(bottom: insets.bottom)
@@ -751,30 +800,35 @@ struct NewGoalView: View {
         }
     }
 
-    /// Your own lines for one workout, as you pasted them.
-    private func sourceBlock(_ w: PlannedWorkout) -> some View {
-        // In the app's own font: the first line a bit stronger, like a title.
+    /// Your own lines for one workout, as you pasted them: plain text with a thin bar,
+    /// like a quote. As high as a card, so the layer of cards fits right over it.
+    private func sourceText(_ w: PlannedWorkout) -> some View {
         let lines = (sources[w.id] ?? WorkoutText.written(for: w)).split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-        return VStack(alignment: .leading, spacing: 4) {
-            Text(lines.first.map(String.init) ?? "")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.9))
-                .lineLimit(2)
-            if lines.count > 1 {
-                Text(String(lines[1]))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.6))
-                    .lineSpacing(2)
-                    .lineLimit(6)
+        return HStack(spacing: 12) {
+            Capsule()
+                .fill(.white.opacity(0.18))
+                .frame(width: 2)
+                .padding(.vertical, 12)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(lines.first.map(String.init) ?? "")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(1)
+                if lines.count > 1 {
+                    Text(String(lines[1]))
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.5))
+                        .lineLimit(2)
+                }
             }
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
+        .padding(.horizontal, 4)
+        .frame(height: rowHeight)
     }
 
     /// The workout as Rondje made it: icon, name, day and the main part in its zone color.
-    private func workoutCard(_ w: PlannedWorkout) -> some View {
+    private func workoutCard(_ w: PlannedWorkout, height: CGFloat? = nil) -> some View {
         let kind = WorkoutKind(w, scheduleName: trimmedName, raceDate: hasDate ? dayString(bigDay) : nil)
         let main = (w.blocks ?? []).first { $0.iterations > 1 } ?? w.blocks?.first
         let summary = main.flatMap { b in
@@ -795,13 +849,8 @@ struct NewGoalView: View {
             Spacer(minLength: 0)
         }
         .padding(12)
+        .frame(height: height)
         .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14)
-                .strokeBorder(Theme.accent, lineWidth: 1.5)
-                .shadow(color: Theme.accent.opacity(0.8), radius: 8)
-                .opacity(flash == w.id ? 1 : 0)
-        )
     }
 
     @ViewBuilder
@@ -1940,6 +1989,32 @@ struct FlowLayout: Layout {
             s.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(size))
             x += size.width + spacing
             row = max(row, size.height)
+        }
+    }
+}
+
+
+/// Shows a view only above, or only below, a line that comes down. The two fade into each
+/// other over a short band just above the line.
+private struct SweepMask: ViewModifier, Animatable {
+    var y: CGFloat
+    let above: Bool
+
+    var animatableData: CGFloat {
+        get { y }
+        set { y = newValue }
+    }
+
+    func body(content: Content) -> some View {
+        let band: CGFloat = 6
+        content.mask(alignment: .top) {
+            VStack(spacing: 0) {
+                (above ? Color.black : Color.clear)
+                    .frame(height: max(0, y - band))
+                LinearGradient(colors: above ? [.black, .clear] : [.clear, .black], startPoint: .top, endPoint: .bottom)
+                    .frame(height: band)
+                (above ? Color.clear : Color.black)
+            }
         }
     }
 }
