@@ -96,13 +96,19 @@ struct NewGoalView: View {
     @State private var morphed = 0                       // workouts turned so far
     @State private var flash: String?                    // the workout that just turned
     @Namespace private var morphSpace
-    // The show after pasting: your bubble grows to the whole screen and turns into workouts.
-    private enum ShowPhase { case off, bubble, grown, blocks, done }
+    // The show after pasting: the chat field grows to the whole screen and your schedule
+    // turns into workouts there.
+    private enum ShowPhase { case off, bubble, blocks, done }
     @State private var show: ShowPhase = .off
-    @State private var pasteFrame: CGRect = .zero   // the chat field, where the show grows from
+    @State private var pasteFrame: CGRect = .zero   // the chat field, as it is now
+    @State private var showFrom: CGRect = .zero     // the chat field when you pasted: the show grows from it
+    @State private var showWorkouts: [PlannedWorkout] = []   // read right at pasting, for the parts on screen
+    @State private var showRun = 0                  // counts pastes, so the same text can run again
     @State private var showStarted = Date()
     @State private var skipShow = false
-    @State private var neutral = false       // the bubble's lime has turned to the black screen
+    @State private var neutral = false              // the field's gray has turned to the black screen
+    @State private var landed = false               // your schedule's parts have slid in
+    @State private var readText: String?            // the text the last reading belongs to
 
     var body: some View {
         NavigationStack {
@@ -451,28 +457,41 @@ struct NewGoalView: View {
 
     /// Set once the pasted text is read: starts the text turning into workouts.
     private var morphTrigger: String {
-        step == .review && method != .later && reading != nil && !isReading && !thinking ? text : ""
+        step == .review && method != .later && reading != nil && readText == text && !isReading && !thinking
+            ? "\(showRun)|\(text)" : ""
     }
 
-    /// Right when you paste: the chat field grows to the whole screen with your text in it,
-    /// while Rondje reads it. Your text never shows in the chat first.
+    /// Right when you paste: the chat field grows to the whole screen, and your schedule
+    /// slides in there, already in parts per workout. Your text never shows in the chat first.
     private func startShow() {
+        showRun += 1
+        morphedText = nil
         guard !reduceMotion else { return }
+        // Read at once, so the parts are there while the screen grows. Not a schedule: the chat says so.
+        guard let parsed = try? WorkoutText.programWithSources(text, weekStart: weekStart),
+              !parsed.schedule.workouts.isEmpty else { return }
+        sources = parsed.sources
+        showWorkouts = parsed.schedule.workouts
+        showFrom = pasteFrame
         composerFocused = false
         morphed = 0
         skipShow = false
         neutral = false
+        landed = false
         showStarted = .now
         show = .bubble
         Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(30))
-            withAnimation(.spring(duration: 0.6, bounce: 0.08)) { show = .grown }
-            withAnimation(.easeOut(duration: 0.35)) { neutral = true }
+            withAnimation(.spring(duration: 0.55, bounce: 0.05)) {
+                show = .blocks
+                neutral = true
+            }
+            landed = true // each part animates in with its own small delay
         }
     }
 
-    /// Once the text is read: it splits per workout, and each part turns into its card,
-    /// slow at first, then faster. It ends there, with the button to add the goal. Tap to skip.
+    /// Once the text is read: each part turns into its workout card, slow at first, then
+    /// faster. It ends there, with the button to add the goal. Tap to skip.
     private func runShow() async {
         guard !morphTrigger.isEmpty, morphedText != text else { return }
         guard case .success(let e) = result, !e.workouts.isEmpty else {
@@ -491,10 +510,8 @@ struct NewGoalView: View {
         }
         let n = e.workouts.count
         morphed = 0
-        // The screen finishes growing, and your text stays readable for a moment.
-        await showPause(max(0, 1.0 - Date().timeIntervalSince(showStarted)))
-        withAnimation(.easeInOut(duration: 0.35)) { show = .blocks }
-        await showPause(0.5)
+        // The screen has grown and your schedule has landed: a moment to take it in.
+        await showPause(max(0, 1.6 - Date().timeIntervalSince(showStarted)))
         let tap = UIImpactFeedbackGenerator(style: .soft)
         // Slow at first, so you see what happens, then faster and faster.
         var pause = 0.8
@@ -535,7 +552,13 @@ struct NewGoalView: View {
         try? await Task.sleep(for: .seconds(seconds))
     }
 
-    /// The full-screen show, growing out of your paste bubble.
+    /// The workouts on the show screen: as read at pasting, then as finally read.
+    private var showList: [PlannedWorkout] {
+        if readText == text, !isReading, case .success(let e) = result { return e.workouts }
+        return showWorkouts
+    }
+
+    /// The full-screen show, growing out of the chat field.
     @ViewBuilder
     private var showOverlay: some View {
         if show != .off {
@@ -543,13 +566,12 @@ struct NewGoalView: View {
                 GeometryReader { g in
                     let origin = g.frame(in: .named("goal")).origin
                     // From the chat field; without it, from where the field would be.
-                    let start = pasteFrame == .zero
+                    let start = showFrom == .zero
                         ? CGRect(x: 16, y: g.size.height - outer.safeAreaInsets.bottom - 64, width: g.size.width - 32, height: 48)
-                        : pasteFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+                        : showFrom.offsetBy(dx: -origin.x, dy: -origin.y)
                     let grown = show != .bubble
                     let f = grown ? CGRect(origin: .zero, size: g.size) : start
-                    showContent(grown: grown, insets: outer.safeAreaInsets)
-                        .frame(width: f.width, height: f.height)
+                    showContent(grown: grown, size: f.size, full: g.size, field: start.size, insets: outer.safeAreaInsets)
                         .position(x: f.midX, y: f.midY)
                 }
                 .ignoresSafeArea()
@@ -558,119 +580,134 @@ struct NewGoalView: View {
         }
     }
 
-    private func showContent(grown: Bool, insets: EdgeInsets) -> some View {
-        let workouts: [PlannedWorkout] = if case .success(let e) = result { e.workouts } else { [] }
+    /// The growing surface. The screen's content has its full size from the start and is only
+    /// uncovered, so nothing reflows while it grows.
+    private func showContent(grown: Bool, size: CGSize, full: CGSize, field: CGSize, insets: EdgeInsets) -> some View {
+        let done = show == .done
+        return Rectangle()
+            // The chat field's gray turns into a black screen with a soft lime glow, like the launch video.
+            .fill(neutral ? Color.black : Theme.pill)
+            .frame(width: size.width, height: size.height)
+            .overlay(alignment: .topLeading) {
+                ZStack(alignment: .topLeading) {
+                    RadialGradient(colors: [Theme.accent.opacity(0.16), .clear], center: .top, startRadius: 0, endRadius: 420)
+                        .opacity(neutral ? 1 : 0)
+                        .allowsHitTesting(false)
+                    showScreen(insets: insets)
+                }
+                .frame(width: full.width, height: full.height, alignment: .topLeading)
+            }
+            .overlay(alignment: .topLeading) {
+                // What you pasted, as it sat in the field. It fades right away as the screen opens.
+                Text(text)
+                    .font(.body)
+                    .foregroundStyle(.white)
+                    .frame(width: max(0, field.width - 32), height: max(0, field.height - 24), alignment: .topLeading)
+                    .clipped()
+                    .padding(.leading, 16)
+                    .padding(.top, 12)
+                    .opacity(grown ? 0 : 1)
+                    .animation(.easeOut(duration: 0.16), value: grown)
+                    .allowsHitTesting(false)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : 22))
+            .contentShape(Rectangle())
+            .onTapGesture { if !done { skipShow = true } }
+            .accessibilityLabel(done ? "" : "Rondje maakt je trainingen. Tik om over te slaan.")
+    }
+
+    /// The screen itself: progress, your schedule in parts turning into cards, and the end.
+    private func showScreen(insets: EdgeInsets) -> some View {
+        let workouts = showList
         let done = show == .done
         let count = min(morphed, workouts.count)
-        let top = insets.top + 64
-        return ZStack(alignment: .topLeading) {
-            // The chat field grows into a black screen with a soft lime glow, like the launch video.
-            Rectangle().fill(neutral ? Color.black : Theme.pill)
-            RadialGradient(colors: [Theme.accent.opacity(0.16), .clear], center: .top, startRadius: 0, endRadius: 420)
-                .opacity(neutral ? 1 : 0)
-                .allowsHitTesting(false)
+        return VStack(alignment: .leading, spacing: 0) {
+            // Header: what happens, and how far along.
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 10) {
+                    Image(systemName: done ? "checkmark.circle.fill" : "sparkles")
+                        .font(.title2)
+                        .foregroundStyle(Theme.accent)
+                        .contentTransition(.symbolEffect(.replace))
+                        .symbolEffect(.pulse, isActive: !done)
+                    Text(done ? "\(workouts.count) trainingen klaar" : "Trainingen maken")
+                        .font(.title2.bold())
+                        .contentTransition(.opacity)
+                    Spacer()
+                    Button(action: closeShow) {
+                        Image(systemName: "xmark")
+                            .font(.subheadline.bold())
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(.white.opacity(0.14), in: Circle())
+                    }
+                    .accessibilityLabel("Sluit")
+                }
+                GeometryReader { bar in
+                    Capsule().fill(.white.opacity(0.1))
+                        .overlay(alignment: .leading) {
+                            Capsule().fill(Theme.accent)
+                                .frame(width: bar.size.width * (workouts.isEmpty ? 0 : CGFloat(count) / CGFloat(workouts.count)))
+                                .shadow(color: Theme.accent.opacity(0.6), radius: 6)
+                        }
+                }
+                .frame(height: 4)
+                HStack {
+                    Text(goalName + (hasDate ? " · \(Format.day(dayString(bigDay)))" : ""))
+                        .lineLimit(1)
+                    Spacer()
+                    if !done {
+                        Text("\(count) van \(workouts.count)")
+                            .monospacedDigit()
+                            .contentTransition(.numericText(value: Double(count)))
+                    }
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, insets.top + 28)
+            .padding(.bottom, 16)
+            .opacity(landed ? 1 : 0)
+            .offset(y: landed ? 0 : 14)
+            .animation(.spring(duration: 0.5, bounce: 0.1).delay(0.12), value: landed)
 
-            if show == .bubble || show == .grown {
-                // Your text as you pasted it. It keeps its width, so it does not jump while the screen grows.
-                Text(text)
-                    .font(.callout)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .frame(width: max(200, pasteFrame.width - 32), alignment: .leading)
-                    .padding(.leading, grown ? 24 : 16)
-                    .padding(.top, grown ? top : 12)
-                    .transition(.opacity)
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-                    // Header: what happens, and how far along.
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 10) {
-                            Image(systemName: done ? "checkmark.circle.fill" : "sparkles")
-                                .font(.title2)
-                                .foregroundStyle(Theme.accent)
-                                .contentTransition(.symbolEffect(.replace))
-                                .symbolEffect(.pulse, isActive: !done)
-                            Text(done ? "\(workouts.count) trainingen klaar" : "Trainingen maken")
-                                .font(.title2.bold())
-                                .contentTransition(.opacity)
-                            Spacer()
-                            if !done {
-                                Text("\(count) van \(workouts.count)")
-                                    .font(.subheadline.bold().monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                                    .contentTransition(.numericText(value: Double(count)))
-                            }
-                        }
-                        GeometryReader { bar in
-                            Capsule().fill(.white.opacity(0.1))
-                                .overlay(alignment: .leading) {
-                                    Capsule().fill(Theme.accent)
-                                        .frame(width: bar.size.width * (workouts.isEmpty ? 0 : CGFloat(count) / CGFloat(workouts.count)))
-                                        .shadow(color: Theme.accent.opacity(0.6), radius: 6)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 10) {
+                        ForEach(Array(workouts.enumerated()), id: \.element.id) { i, w in
+                            Group {
+                                if i < morphed {
+                                    workoutCard(w)
+                                        .matchedGeometryEffect(id: w.id, in: morphSpace)
+                                        .transition(.blurReplace)
+                                } else {
+                                    sourceBlock(w)
+                                        .matchedGeometryEffect(id: w.id, in: morphSpace)
+                                        .transition(.blurReplace)
                                 }
+                            }
+                            .id(w.id)
+                            // Your schedule slides in part by part while the screen opens.
+                            .opacity(landed ? 1 : 0)
+                            .offset(y: landed ? 0 : 22)
+                            .animation(.spring(duration: 0.5, bounce: 0.12).delay(0.2 + min(Double(i), 10) * 0.05), value: landed)
                         }
-                        .frame(height: 4)
-                        Text(goalName + (hasDate ? " · \(Format.day(dayString(bigDay)))" : ""))
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, top)
-                    .padding(.bottom, 16)
-
-                    ScrollViewReader { proxy in
-                        ScrollView {
-                            VStack(spacing: 10) {
-                                ForEach(Array(workouts.enumerated()), id: \.element.id) { i, w in
-                                    Group {
-                                        if i < morphed {
-                                            workoutCard(w)
-                                                .matchedGeometryEffect(id: w.id, in: morphSpace)
-                                                .transition(.blurReplace)
-                                        } else {
-                                            sourceBlock(w)
-                                                .matchedGeometryEffect(id: w.id, in: morphSpace)
-                                                .transition(.blurReplace)
-                                        }
-                                    }
-                                    .id(w.id)
-                                }
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 24)
-                        }
-                        .scrollIndicators(.hidden)
-                        .onChange(of: flash) { _, id in
-                            if let id { withAnimation(.easeInOut(duration: 0.45)) { proxy.scrollTo(id, anchor: .center) } }
-                        }
-                    }
-
-                    if done {
-                        showFooter(bottom: insets.bottom)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
+                    .padding(.bottom, 24)
                 }
-                .transition(.opacity)
+                .scrollIndicators(.hidden)
+                .onChange(of: flash) { _, id in
+                    if let id { withAnimation(.easeInOut(duration: 0.45)) { proxy.scrollTo(id, anchor: .center) } }
+                }
+            }
+
+            if done {
+                showFooter(bottom: insets.bottom)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
-        .overlay(alignment: .topTrailing) {
-            if grown {
-                Button(action: closeShow) {
-                    Image(systemName: "xmark")
-                        .font(.body.bold())
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(.white.opacity(0.14), in: Circle())
-                }
-                .accessibilityLabel("Sluit")
-                .padding(.top, insets.top + 10)
-                .padding(.trailing, 16)
-                .transition(.opacity)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : 22))
-        .contentShape(Rectangle())
-        .onTapGesture { if !done { skipShow = true } }
-        .accessibilityLabel(done ? "" : "Rondje maakt je trainingen. Tik om over te slaan.")
     }
 
     /// The end of the show: what to check, and the button that adds the goal.
@@ -732,15 +769,24 @@ struct NewGoalView: View {
 
     /// Your own lines for one workout, as you pasted them.
     private func sourceBlock(_ w: PlannedWorkout) -> some View {
-        Text(sources[w.id] ?? WorkoutText.written(for: w))
-            .font(.system(size: 12, design: .monospaced))
-            .foregroundStyle(.white.opacity(0.7))
-            .lineSpacing(2)
-            .lineLimit(7)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(12)
-            .background(.white.opacity(0.03), in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(.white.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 4])))
+        // In the app's own font: the first line a bit stronger, like a title.
+        let lines = (sources[w.id] ?? WorkoutText.written(for: w)).split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(lines.first.map(String.init) ?? "")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.9))
+                .lineLimit(2)
+            if lines.count > 1 {
+                Text(String(lines[1]))
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.6))
+                    .lineSpacing(2)
+                    .lineLimit(6)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 14))
     }
 
     /// The workout as Rondje made it: icon, name, day and the main part in its zone color.
@@ -1771,6 +1817,7 @@ struct NewGoalView: View {
         guard !Task.isCancelled else { return }
         if case .success(let p) = r { sources = p.sources }
         reading = r.map { ($0.schedule, $0.doubts) }
+        readText = current
         isReading = false
         guard WorkoutAI.isAvailable, case .success(let p) = reading, !p.doubts.isEmpty else { return }
         thinking = true
