@@ -76,7 +76,7 @@ struct EditScheduleView: View {
                 }
             }
             .navigationTitle("Wijzig schema")
-            .keyboardDoneButton()
+            .keyboardHidesOnDrag()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

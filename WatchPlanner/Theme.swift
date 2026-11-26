@@ -260,19 +260,9 @@ struct WorkoutRow: View {
 // MARK: - Keyboard
 
 extension View {
-    /// A "Klaar" button above the keyboard, and scrolling down hides the keyboard too.
-    func keyboardDoneButton() -> some View {
-        self
-            .scrollDismissesKeyboard(.interactively)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Klaar") {
-                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                    }
-                    .bold()
-                }
-            }
+    /// Drag the screen down to put the keyboard away, like in Messages. No extra button.
+    func keyboardHidesOnDrag() -> some View {
+        scrollDismissesKeyboard(.interactively)
     }
 }
 

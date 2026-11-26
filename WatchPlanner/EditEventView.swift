@@ -31,7 +31,7 @@ struct EditEventView: View {
                 }
             }
             .navigationTitle("Doel wijzigen")
-            .keyboardDoneButton()
+            .keyboardHidesOnDrag()
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
