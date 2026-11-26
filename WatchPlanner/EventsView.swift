@@ -8,6 +8,7 @@ struct EventsView: View {
     @Environment(Planner.self) private var planner
 
     @State private var showNewEvent = false
+    @State private var toDelete: TrainingSchedule?
 
     var body: some View {
         NavigationStack {
@@ -61,10 +62,33 @@ struct EventsView: View {
                         } label: {
                             eventRow(event)
                         }
+                        .swipeActions(allowsFullSwipe: false) {
+                            // Asks first: a whole goal with all its workouts is a lot to lose by accident.
+                            Button("Verwijder", systemImage: "trash") { toDelete = event }
+                                .tint(.red)
+                        }
                     }
                 }
 
             }
+            .alert("\(toDelete?.name ?? "Doel") verwijderen?", isPresented: Binding(
+                get: { toDelete != nil },
+                set: { if !$0 { toDelete = nil } }
+            ), presenting: toDelete) { event in
+                Button("Verwijder", role: .destructive) { delete(event) }
+                Button("Annuleer", role: .cancel) {}
+            } message: { _ in
+                Text("Alle trainingen van dit doel gaan weg, ook van je Watch.")
+            }
+    }
+
+    private func delete(_ event: TrainingSchedule) {
+        do {
+            try store.deleteEvent(named: event.name)
+            Task { await planner.remove(event.workouts, time: event.defaultTime, events: store.events) }
+        } catch {
+            planner.message = Message(title: "Lukt niet", text: error.localizedDescription)
+        }
     }
 
     // MARK: - Rows
