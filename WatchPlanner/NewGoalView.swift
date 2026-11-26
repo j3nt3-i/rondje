@@ -289,7 +289,8 @@ struct NewGoalView: View {
         case .level: return "Dank je, dan weet ik waar je staat."
         case .aim:
             let time = aimTime.trimmingCharacters(in: .whitespaces)
-            return aims.contains("Een tijd neerzetten") && !time.isEmpty ? "Een tijd van \(time), mooi doel!" : "Mooi."
+            guard aims.contains("Een tijd neerzetten") else { return "Mooi." }
+            return time.isEmpty ? "Prima, een tijd kun je later nog kiezen." : "\(time), mooi doel!"
         default: return nil
         }
     }
@@ -666,9 +667,18 @@ struct NewGoalView: View {
             act(on: take(t), said: t)
             return
         }
+        // Rondje just asked something more ("Welke tijd?", "Welke 13e?"): your message answers that,
+        // unless you clearly change something else ("o nee, ik bedoelde...").
+        if followingUp, !NewGoalView.soundsLikeChange(t), !t.contains("?") {
+            let taken = take(t)
+            if case .no = taken {} else {
+                act(on: taken, said: t)
+                return
+            }
+        }
         if !t.isEmpty, WorkoutAI.isAvailable, let field = NewGoalView.aiFields[step] {
             let earlier = pastSteps.compactMap { s in NewGoalView.aiFields[s].map { ($0, answer(s)) } }
-            let turn = await understand { await WorkoutAI.readTurn(t, question: ask(step), current: field, earlier: earlier) } ?? nil
+            let turn = await understand { await WorkoutAI.readTurn(t, question: lastAsked, current: field, earlier: earlier) } ?? nil
             if let turn {
                 let before = step
                 await handle(turn, said: t)
@@ -735,7 +745,10 @@ struct NewGoalView: View {
 
         // A change to an earlier answer. Without a new value, ask that question again,
         // but only when you clearly talk about it ("de datum klopt niet").
-        if gives, let target, target != step, pastSteps.contains(target) {
+        // Only when you say so yourself ("o nee", "eigenlijk", "de datum..."): an earlier answer
+        // never changes because Apple Intelligence thought so.
+        if gives, let target, target != step, pastSteps.contains(target),
+           NewGoalView.soundsLikeChange(t) || mentionsTopic(of: target, in: t) {
             if let said = change(target, to: free.contains(target) ? [turn.value] : [t, turn.value]) {
                 reply(t, "\(said) \(ask(step))")
                 return
@@ -789,6 +802,24 @@ struct NewGoalView: View {
         default: []
         }
         reply(t, (sorry ? "Sorry, daar kom ik niet uit. " : "") + explain(step))
+    }
+
+    /// What Rondje asked last on this question: a follow-up like "Welke tijd?", or the question itself.
+    private var lastAsked: String {
+        corrections.last { $0.at == step }?.reply ?? ask(step)
+    }
+
+    /// Rondje asked for the missing part of your answer and waits for it.
+    private var followingUp: Bool {
+        askedTime || trailMissing != nil || heldDay != nil || heldMonth != nil
+    }
+
+    /// Words that say you change something you said before: "o nee", "eigenlijk", "ik bedoelde".
+    static func soundsLikeChange(_ t: String) -> Bool {
+        let l = t.lowercased()
+        return ["eigenlijk", "oeps", "verkeerd", "fout", "klopt niet", "toch", "sorry", "verander", "aanpas",
+                "moet zijn", "bedoel", "o nee", "oh nee", "wacht", "in plaats van", "ipv", "vergis"]
+            .contains(where: l.contains)
     }
 
     /// Whether you clearly talk about an earlier question: "de datum klopt niet".
@@ -884,8 +915,9 @@ struct NewGoalView: View {
             level = t
         case .aim where askedTime:
             // The answer to "welke tijd?" is the time, in your own words.
+            // "Weet ik nog niet" is fine: a time can come later, and it is not stored as the time.
             guard !t.isEmpty else { return .no }
-            aimTime = t
+            aimTime = NewGoalView.saysNo(t) ? "" : t
         case .aim:
             if let time = t.range(of: #"\d{1,2}[:.]\d{2}(?:[:.]\d{2})?|\d+\s*(?:uur|u)\b(?:\s*\d+)?|\d+\s*min(?:uten)?"#,
                                   options: .regularExpression) {
@@ -919,8 +951,7 @@ struct NewGoalView: View {
     /// Returns what Rondje says back, or nil when this is not a correction of an earlier answer.
     private func correct(_ t: String) -> String? {
         let l = t.lowercased()
-        let markers = ["eigenlijk", "oeps", "verkeerd", "fout", "klopt niet", "toch", "sorry", "verander", "aanpassen", "moet zijn"]
-        guard markers.contains(where: l.contains) else { return nil }
+        guard NewGoalView.soundsLikeChange(t) else { return nil }
         let done = Set(pastSteps)
 
         if done.contains(.date), let d = NewGoalView.dateInText(t) {
