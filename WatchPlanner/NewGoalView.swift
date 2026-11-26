@@ -14,6 +14,7 @@ struct NewGoalView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private enum Step { case name, trail, date, method, perWeek, level, aim, wishes, copy, openApp, paste, review }
     private enum Method { case ai, paste, later }
@@ -95,6 +96,11 @@ struct NewGoalView: View {
     @State private var morphed = 0                       // workouts turned so far
     @State private var flash: String?                    // the workout that just turned
     @Namespace private var morphSpace
+    // The show after pasting: your bubble grows to the whole screen and turns into workouts.
+    private enum ShowPhase { case off, bubble, grown, blocks, done }
+    @State private var show: ShowPhase = .off
+    @State private var pasteFrame: CGRect = .zero
+    @State private var skipShow = false
 
     var body: some View {
         NavigationStack {
@@ -110,7 +116,13 @@ struct NewGoalView: View {
                         ForEach(pastSteps, id: \.self) { s in
                             botBubbles(question(s), at: s)
                             correctionBubbles(at: s)
-                            userBubble(typedAnswers[s] ?? answer(s)) { jump(to: s) }
+                            if s == .paste {
+                                // The show starts from this bubble, so it hides while the show runs.
+                                userBubble(typedAnswers[s] ?? answer(s), measure: true) { jump(to: s) }
+                                    .opacity(show == .off ? 1 : 0)
+                            } else {
+                                userBubble(typedAnswers[s] ?? answer(s)) { jump(to: s) }
+                            }
                         }
                         if streaming {
                             botBubbles(streamed, at: step)
@@ -204,12 +216,15 @@ struct NewGoalView: View {
             }
             .task(id: "\(text)|\(weekStart)") { await read() }
             .task { WorkoutAI.prewarm() }
-            .task(id: morphTrigger) { await runMorph() }
+            .task(id: morphTrigger) { await runShow() }
             .onChange(of: scenePhase) { _, phase in
                 // Back from the AI app: the next step is pasting the answer.
                 if phase == .active && openedApp && step == .openApp { step = .paste }
             }
+            .onPreferenceChange(PasteFrameKey.self) { pasteFrame = $0 }
         }
+        .overlay { showOverlay }
+        .coordinateSpace(name: "goal")
     }
 
     // MARK: - Flow
@@ -369,7 +384,7 @@ struct NewGoalView: View {
             .padding(.vertical, 4)
     }
 
-    private func userBubble(_ text: String, edit: @escaping () -> Void) -> some View {
+    private func userBubble(_ text: String, measure: Bool = false, edit: @escaping () -> Void) -> some View {
         HStack {
             Spacer(minLength: 60)
             Button(action: edit) {
@@ -380,6 +395,13 @@ struct NewGoalView: View {
                     .foregroundStyle(.black)
                     .padding(.horizontal, 14).padding(.vertical, 10)
                     .background(Theme.accent, in: UnevenRoundedRectangle(topLeadingRadius: 20, bottomLeadingRadius: 20, bottomTrailingRadius: 6, topTrailingRadius: 20))
+                    .background {
+                        if measure {
+                            GeometryReader { g in
+                                Color.clear.preference(key: PasteFrameKey.self, value: g.frame(in: .named("goal")))
+                            }
+                        }
+                    }
             }
             .buttonStyle(BounceStyle())
             .accessibilityHint("Tik om dit antwoord te veranderen")
@@ -443,36 +465,145 @@ struct NewGoalView: View {
         step == .review && method != .later && reading != nil && !isReading && !thinking ? text : ""
     }
 
-    /// Each workout's own lines turn into its card, one after the other, like in the video.
-    private func runMorph() async {
+    /// After pasting: your bubble grows to the whole screen, your text splits per workout,
+    /// and each part turns into its workout card, calmly, one after the other. Tap to skip.
+    private func runShow() async {
         guard !morphTrigger.isEmpty, morphedText != text else { return }
         morphed = 0
+        skipShow = false
         guard case .success(let e) = result, !e.workouts.isEmpty else {
             withAnimation(.snappy) { morphedText = text }
             UINotificationFeedbackGenerator().notificationOccurred(.error)
             return
         }
-        // Your text sits there for a beat first.
-        try? await Task.sleep(for: .milliseconds(700))
+        guard !reduceMotion, pasteFrame != .zero else {
+            withAnimation(.snappy) { morphedText = text }
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            return
+        }
         let n = e.workouts.count
-        let pause = min(0.42, 3.6 / Double(n))
+        // Your message sits in the chat for a moment first.
+        await showPause(0.5)
+        show = .bubble
+        try? await Task.sleep(for: .milliseconds(50))
+        withAnimation(.spring(duration: 0.85, bounce: 0.1)) { show = .grown }
+        await showPause(1.2)
+        withAnimation(.easeInOut(duration: 0.55)) { show = .blocks }
+        await showPause(0.9)
         let tap = UIImpactFeedbackGenerator(style: .soft)
+        // Slow at first, so you see what happens, then faster and faster.
+        var pause = 0.95
         for i in 1...n {
-            guard !Task.isCancelled else { return }
-            withAnimation(.spring(duration: 0.6, bounce: 0.22)) {
+            if skipShow || Task.isCancelled { break }
+            withAnimation(.spring(duration: max(0.35, pause * 0.85), bounce: 0.2)) {
                 morphed = i
                 flash = e.workouts[i - 1].id
             }
-            tap.impactOccurred(intensity: 0.7)
-            try? await Task.sleep(for: .seconds(pause))
+            tap.impactOccurred(intensity: max(0.35, 0.8 * pause / 0.95))
+            await showPause(pause)
+            pause = max(0.11, pause * 0.75)
         }
-        try? await Task.sleep(for: .milliseconds(350))
-        guard !Task.isCancelled else { return }
+        if Task.isCancelled { show = .off; return }
         withAnimation(.snappy) {
-            morphedText = text
+            morphed = n
             flash = nil
+            show = .done
         }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+        await showPause(1.4)
+        withAnimation(.easeInOut(duration: 0.5)) {
+            show = .off
+            morphedText = text
+        }
+    }
+
+    /// A pause in the show, skipped when you tapped to skip.
+    private func showPause(_ seconds: Double) async {
+        guard !skipShow else { return }
+        try? await Task.sleep(for: .seconds(seconds))
+    }
+
+    /// The full-screen show, growing out of your paste bubble.
+    @ViewBuilder
+    private var showOverlay: some View {
+        if show != .off {
+            GeometryReader { outer in
+                GeometryReader { g in
+                    let origin = g.frame(in: .named("goal")).origin
+                    let start = pasteFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+                    let grown = show != .bubble
+                    let f = grown ? CGRect(origin: .zero, size: g.size) : start
+                    showContent(grown: grown, topInset: outer.safeAreaInsets.top)
+                        .frame(width: f.width, height: f.height)
+                        .position(x: f.midX, y: f.midY)
+                }
+                .ignoresSafeArea()
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.96)))
+        }
+    }
+
+    private func showContent(grown: Bool, topInset: CGFloat) -> some View {
+        let workouts: [PlannedWorkout] = if case .success(let e) = result { e.workouts } else { [] }
+        return ZStack(alignment: .topLeading) {
+            Rectangle().fill(grown ? Color.black : Theme.accent)
+            if show == .bubble || show == .grown {
+                // Your text, still as you pasted it, going from the lime bubble to neutral.
+                Text(text)
+                    .font(.callout)
+                    .foregroundStyle(grown ? Color.white.opacity(0.75) : Color.black)
+                    .padding(.horizontal, grown ? 24 : 14)
+                    .padding(.top, grown ? topInset + 70 : 10)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .transition(.blurReplace)
+            } else {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 10) {
+                        Image(systemName: show == .done ? "checkmark.circle.fill" : "sparkles")
+                            .font(.title2)
+                            .foregroundStyle(Theme.accent)
+                            .contentTransition(.symbolEffect(.replace))
+                            .symbolEffect(.pulse, isActive: show != .done)
+                        Text(show == .done ? "\(workouts.count) trainingen klaar" : "Trainingen maken")
+                            .font(.title2.bold())
+                            .contentTransition(.opacity)
+                    }
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            VStack(spacing: 10) {
+                                ForEach(Array(workouts.enumerated()), id: \.element.id) { i, w in
+                                    Group {
+                                        if i < morphed {
+                                            workoutCard(w)
+                                                .matchedGeometryEffect(id: w.id, in: morphSpace)
+                                                .transition(.blurReplace)
+                                        } else {
+                                            sourceBlock(w)
+                                                .matchedGeometryEffect(id: w.id, in: morphSpace)
+                                                .transition(.blurReplace)
+                                        }
+                                    }
+                                    .id(w.id)
+                                }
+                            }
+                            .padding(.bottom, 40)
+                        }
+                        .scrollIndicators(.hidden)
+                        .onChange(of: flash) { _, id in
+                            if let id { withAnimation(.easeInOut(duration: 0.5)) { proxy.scrollTo(id, anchor: .center) } }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, topInset + 70)
+                .transition(.blurReplace)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: grown ? 0 : 20))
+        .contentShape(Rectangle())
+        .onTapGesture { skipShow = true }
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Rondje maakt je trainingen. Tik om over te slaan.")
     }
 
     /// While Rondje reads the pasted schedule.
@@ -576,19 +707,8 @@ struct NewGoalView: View {
                             Label(problem, systemImage: "exclamationmark.triangle.fill").font(.footnote).foregroundStyle(.orange)
                         }
                     }
-                    ForEach(Array(e.workouts.enumerated()), id: \.element.id) { i, w in
-                        Group {
-                            if morphDone || i < morphed {
-                                workoutCard(w)
-                                    .matchedGeometryEffect(id: w.id, in: morphSpace)
-                                    .transition(.blurReplace)
-                            } else {
-                                sourceBlock(w)
-                                    .matchedGeometryEffect(id: w.id, in: morphSpace)
-                                    .transition(.blurReplace)
-                            }
-                        }
-                        .id(w.id)
+                    if morphDone {
+                        ForEach(e.workouts) { w in workoutCard(w) }
                     }
                     if morphDone {
                         Toggle("Meteen op Watch zetten", isOn: $planNow)
@@ -1692,5 +1812,14 @@ struct FlowLayout: Layout {
             x += size.width + spacing
             row = max(row, size.height)
         }
+    }
+}
+
+/// Where your paste bubble is, so the show can grow out of it.
+private struct PasteFrameKey: PreferenceKey {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let next = nextValue()
+        if next != .zero { value = next }
     }
 }
