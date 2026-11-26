@@ -95,7 +95,6 @@ struct NewGoalView: View {
     @State private var morphed = 0                       // workouts counted as turned so far
     @State private var sweep: CGFloat = 0                // how far down the layer of cards has come
     @State private var sweeping = false                  // the lime edge of that layer shows
-    @State private var following = true                  // a long list scrolls along under the edge
     @State private var listHeight: CGFloat = 0           // the part of the list you can see
     @ScaledMetric(relativeTo: .headline) private var rowHeight: CGFloat = 88
     // The show after pasting: the chat field grows to the whole screen and your schedule
@@ -475,7 +474,6 @@ struct NewGoalView: View {
         morphed = 0
         sweep = 0
         sweeping = false
-        following = true
         skipShow = false
         neutral = false
         landed = false
@@ -539,14 +537,15 @@ struct NewGoalView: View {
         }
         if Task.isCancelled { show = .off; return }
         guard show != .off else { return }
-        // All made. A long list rolls back up to the first workout.
-        withAnimation(.easeInOut(duration: long ? 0.7 : 0.3)) {
+        // All made. The list stays where the edge ended: at the last workout.
+        let cutShort = skipShow
+        withAnimation(.easeInOut(duration: 0.3)) {
             sweep = end
-            following = false
             sweeping = false
             morphed = .max
         }
-        if long { try? await Task.sleep(for: .seconds(0.7)) }
+        // Skipped halfway through a long list: let it run on to the end first.
+        if cutShort && long { try? await Task.sleep(for: .seconds(0.3)) }
         if Task.isCancelled { show = .off; return }
         guard show != .off else { return }
         withAnimation(.spring(duration: 0.45, bounce: 0.15)) {
@@ -703,11 +702,13 @@ struct NewGoalView: View {
             .animation(.spring(duration: 0.5, bounce: 0.1).delay(0.12), value: landed)
 
             if done {
-                // Made: a list to scroll through and check.
+                // Made: a list to scroll through and check. A long one starts where the
+                // sweep left it, at the last workout.
                 ScrollView {
                     cardRows(workouts)
                         .padding(.bottom, 24)
                 }
+                .defaultScrollAnchor(listHeight > 0 && listContentHeight(workouts.count) > listHeight ? .bottom : .top)
                 .scrollIndicators(.hidden)
                 .transition(.identity)
             } else {
@@ -719,12 +720,12 @@ struct NewGoalView: View {
                     .overlay(alignment: .top) {
                         ZStack(alignment: .top) {
                             textRows(workouts)
-                                .modifier(SweepLayer(y: sweep, follow: following ? 1 : 0, hold: listHeight * 0.55, most: most, height: listHeight, part: .text))
+                                .modifier(SweepLayer(y: sweep, hold: listHeight * 0.55, most: most, height: listHeight, part: .text))
                                 .accessibilityHidden(true)
                             cardRows(workouts)
-                                .modifier(SweepLayer(y: sweep, follow: following ? 1 : 0, hold: listHeight * 0.55, most: most, height: listHeight, part: .cards))
+                                .modifier(SweepLayer(y: sweep, hold: listHeight * 0.55, most: most, height: listHeight, part: .cards))
                             sweepEdge
-                                .modifier(SweepLayer(y: sweep, follow: following ? 1 : 0, hold: listHeight * 0.55, most: most, height: listHeight, part: .edge))
+                                .modifier(SweepLayer(y: sweep, hold: listHeight * 0.55, most: most, height: listHeight, part: .edge))
                         }
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 }
@@ -2032,19 +2033,18 @@ private struct SweepLayer: ViewModifier, Animatable {
     enum Part { case text, cards, edge }
 
     var y: CGFloat          // the edge, measured down the whole list
-    var follow: CGFloat     // 1 while the list scrolls along, 0 once it is back at its top
     let hold: CGFloat       // where on screen the edge stays while the list scrolls
     let most: CGFloat       // how far the list can scroll
     let height: CGFloat     // the part of the list you can see
     let part: Part
 
-    var animatableData: AnimatablePair<CGFloat, CGFloat> {
-        get { AnimatablePair(y, follow) }
-        set { y = newValue.first; follow = newValue.second }
+    var animatableData: CGFloat {
+        get { y }
+        set { y = newValue }
     }
 
     func body(content: Content) -> some View {
-        let scroll = follow * min(max(0, y - hold), most)
+        let scroll = min(max(0, y - hold), most)
         let line = y - scroll // the edge on screen
         switch part {
         case .edge:
