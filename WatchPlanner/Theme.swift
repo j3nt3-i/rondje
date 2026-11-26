@@ -244,13 +244,7 @@ struct WorkoutRow: View {
         .opacity(isPast ? 0.4 : 1)
     }
 
-    /// "Di 40 min" shows as "40 min", since the day is right below it.
-    private var displayName: String {
-        let weekday = Format.shortDay(workout.date).split(separator: " ").first.map(String.init) ?? ""
-        guard !weekday.isEmpty, workout.name.lowercased().hasPrefix(weekday.lowercased() + " ") else { return workout.name }
-        let rest = workout.name.dropFirst(weekday.count + 1)
-        return rest.prefix(1).uppercased() + rest.dropFirst()
-    }
+    private var displayName: String { workout.shownName }
 
     private var status: (text: String, color: Color)? {
         guard !isPast else { return nil }
@@ -279,5 +273,15 @@ extension View {
                     .bold()
                 }
             }
+    }
+}
+
+extension PlannedWorkout {
+    /// "Di 40 min" shows as "40 min", since the day is right below it.
+    var shownName: String {
+        let weekday = Format.shortDay(date).split(separator: " ").first.map(String.init) ?? ""
+        guard !weekday.isEmpty, name.lowercased().hasPrefix(weekday.lowercased() + " ") else { return name }
+        let rest = name.dropFirst(weekday.count + 1)
+        return rest.prefix(1).uppercased() + rest.dropFirst()
     }
 }

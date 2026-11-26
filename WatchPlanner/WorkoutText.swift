@@ -348,10 +348,20 @@ enum WorkoutText {
     /// Like program, but keeps going past workouts it cannot read and lists them.
     static func programWithWarnings(_ text: String, weekStart: Date = defaultWeekStart()) throws
         -> (schedule: TrainingSchedule, doubts: [Doubt]) {
+        let r = try programWithSources(text, weekStart: weekStart)
+        return (r.schedule, r.doubts)
+    }
+
+    /// Like programWithWarnings, plus the lines each workout came from, by workout id,
+    /// so the app can show your own text turning into the workout.
+    static func programWithSources(_ text: String, weekStart: Date = defaultWeekStart()) throws
+        -> (schedule: TrainingSchedule, doubts: [Doubt], sources: [String: String]) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.hasPrefix("{") {
-            return (try TrainingSchedule.decode(Data(trimmed.utf8)), [])
+            return (try TrainingSchedule.decode(Data(trimmed.utf8)), [], [:])
         }
+        var sources: [String: String] = [:]
+        var lastLine = ""
 
         let cal = ScheduleDates.calendar
         var doubts: [Doubt] = []
@@ -360,11 +370,12 @@ enum WorkoutText {
         var week: Int?
         var lastDate = cal.date(byAdding: .day, value: -1, to: cal.startOfDay(for: weekStart)) ?? weekStart
         var workouts: [PlannedWorkout] = []
-        var current: (date: String, rest: String, lines: [String])?
+        var current: (date: String, rest: String, lines: [String], header: String)?
 
         func finish() throws {
             guard var c = current else { return }
             current = nil
+            let source = ([c.header] + c.lines).joined(separator: "\n")
             // "uitleg: Zoek een heuvel..." is the note for this workout, not part of it.
             let split = splitNote(c.lines)
             c.lines = split.lines
@@ -384,6 +395,7 @@ enum WorkoutText {
                 if name.isEmpty { w.name = autoName(date: c.date, for: w, text: bodyText) }
                 w.note = note
                 workouts.append(w)
+                sources[w.id] = source
                 if r.unsure { doubts.append(Doubt(date: c.date, name: name, text: bodyText, problem: nil, workoutID: w.id, note: note)) }
             } catch {
                 doubts.append(Doubt(date: c.date, name: name, text: bodyText,
@@ -394,7 +406,7 @@ enum WorkoutText {
         func start(on date: Date, rest: String) throws {
             try finish()
             lastDate = date
-            current = (isoFormatter.string(from: date), rest.trimmingCharacters(in: CharacterSet(charactersIn: " -:")), [])
+            current = (isoFormatter.string(from: date), rest.trimmingCharacters(in: CharacterSet(charactersIn: " -:")), [], lastLine)
         }
 
         func handle(_ line: String) throws {
@@ -431,7 +443,10 @@ enum WorkoutText {
 
         for raw in text.components(separatedBy: .newlines) {
             let line = clean(raw)
-            if !line.isEmpty { try handle(line) }
+            if !line.isEmpty {
+                lastLine = line
+                try handle(line)
+            }
         }
         try finish()
 
@@ -442,7 +457,7 @@ enum WorkoutText {
         let schedule = TrainingSchedule(name: name, defaultTime: time ?? "07:00",
                                         workouts: dedupe(workouts).sorted { $0.date < $1.date })
         try schedule.validate()
-        return (schedule, doubts)
+        return (schedule, doubts, sources)
     }
 
     /// True when dates come from day names, so the user should pick when week 1 starts.
