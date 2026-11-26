@@ -39,12 +39,9 @@ struct NewGoalView: View {
     @AppStorage("prompt.perWeek") private var perWeek = 3
     @AppStorage("prompt.level") private var level = ""
     @State private var ownLevel = ""
-    @State private var aims: Set<String> = []
-    @State private var aimTime = ""
-    @State private var ownAimOn = false
     @State private var ownAim = ""
-    @FocusState private var ownAimFocused: Bool
-    @State private var wishes: Set<String> = []
+    @State private var aimTime = ""
+    @State private var wantsTime = false   // you want a time and Rondje asked which
     @State private var ownWish = ""
     @State private var openedApp = false
     @State private var chosenApp: String?
@@ -289,8 +286,8 @@ struct NewGoalView: View {
         case .level: return "Dank je, dan weet ik waar je staat."
         case .aim:
             let time = aimTime.trimmingCharacters(in: .whitespaces)
-            guard aims.contains("Een tijd neerzetten") else { return "Mooi." }
-            return time.isEmpty ? "Prima, een tijd kun je later nog kiezen." : "\(time), mooi doel!"
+            if !time.isEmpty { return "\(time), mooi doel!" }
+            return wantsTime ? "Prima, een tijd kun je later nog kiezen." : "Mooi doel!"
         default: return nil
         }
     }
@@ -303,8 +300,8 @@ struct NewGoalView: View {
         case .method: return "Zal ik je helpen met een schema? Of heb je er al een?"
         case .perWeek: return "Hoe vaak per week wil je lopen?"
         case .level: return "Wat lukt je nu? En hoe zwaar voelt dat?"
-        case .aim: return "Wat wil je bereiken? Kies er gerust meer."
-        case .wishes: return "Nog wensen voor je schema?"
+        case .aim: return "Wat wil je bereiken? Bijvoorbeeld uitlopen, een tijd neerzetten of sneller worden."
+        case .wishes: return "Nog wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend, heuvels, of nooit op woensdag."
         case .copy: return "Je prompt is klaar. Kopieer hem, dan open je zo je AI-app."
         case .openApp: return "Welke AI gebruik je? Plak de prompt daar en verstuur hem."
         case .paste: return method == .ai ? "Plak hier het antwoord als je terug bent." : "Plak of typ hier je schema."
@@ -572,19 +569,8 @@ struct NewGoalView: View {
             ForEach(levels, id: \.self) { l in
                 GoalPill(title: l, isOn: false) { level = l; typedAnswers[.level] = nil; goNext() }
             }
-        case .aim:
-            ForEach(aimChoices, id: \.self) { choice in
-                GoalPill(title: choice, isOn: aims.contains(choice)) {
-                    if aims.contains(choice) { aims.remove(choice) } else { aims.insert(choice) }
-                }
-            }
         case .wishes:
-            ForEach(wishChoices, id: \.self) { w in
-                GoalPill(title: w, isOn: wishes.contains(w)) {
-                    if wishes.contains(w) { wishes.remove(w) } else { wishes.insert(w) }
-                }
-            }
-            GoalPill(title: "Geen wensen", isOn: false) { wishes = []; ownWish = ""; typedAnswers[.wishes] = nil; goNext() }
+            GoalPill(title: "Geen wensen", isOn: false) { ownWish = ""; typedAnswers[.wishes] = "Geen wensen"; goNext() }
         case .paste:
             PasteButton(payloadType: String.self) { strings in
                 guard let s = strings.first, !s.isEmpty else { return }
@@ -614,8 +600,8 @@ struct NewGoalView: View {
         case .method: return "Bijv. ja graag, ik heb er al een, of later"
         case .perWeek: return "Bijv. 4"
         case .level: return "Of vertel het zelf, bijv. 2x per week 6 km"
-        case .aim: return aims.contains("Een tijd neerzetten") ? "Welke tijd? Bijv. 1:55" : "Kies hierboven, of typ het zelf"
-        case .wishes: return "Kies hierboven, of typ bijv. nooit op woensdag"
+        case .aim: return askedTime ? "Bijv. 1:55 of onder de 2 uur" : "Bijv. uitlopen, of onder de 2 uur"
+        case .wishes: return "Bijv. nooit op woensdag"
         case .paste: return method == .ai ? "Of plak het antwoord hier" : "Plak of typ je schema"
         default: return ""
         }
@@ -639,8 +625,6 @@ struct NewGoalView: View {
 
     private var canSend: Bool {
         switch step {
-        case .aim: return !typed.isEmpty || !aims.isEmpty
-        case .wishes: return !typed.isEmpty || !wishes.isEmpty
         default: return !typed.isEmpty
         }
     }
@@ -704,9 +688,7 @@ struct NewGoalView: View {
     private func act(on taken: Taken, said t: String) {
         switch taken {
         case .ok:
-            // With pills chosen, the bubble shows those too, unless this was the answer to a follow-up.
-            let pills = (step == .aim && !aims.isEmpty && !askedTime) || (step == .wishes && !wishes.isEmpty)
-            typedAnswers[step] = t.isEmpty || pills ? nil : t
+            typedAnswers[step] = t.isEmpty ? nil : t
             goNext()
         case .ask(let more): reply(t, more)
         case .no: explainAgain(t)
@@ -919,20 +901,13 @@ struct NewGoalView: View {
             guard !t.isEmpty else { return .no }
             aimTime = NewGoalView.saysNo(t) ? "" : t
         case .aim:
-            if let time = t.range(of: #"\d{1,2}[:.]\d{2}(?:[:.]\d{2})?|\d+\s*(?:uur|u)\b(?:\s*\d+)?|\d+\s*min(?:uten)?"#,
-                                  options: .regularExpression) {
-                aims.insert("Een tijd neerzetten")
-                aimTime = String(t[time])
-                let rest = t.replacingCharacters(in: time, with: "").trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
-                ownAimOn = !rest.isEmpty
-                ownAim = rest
-            } else if let pill = aimChoices.first(where: { $0.lowercased() == t.lowercased() }) {
-                aims.insert(pill)
-            } else {
-                ownAimOn = !t.isEmpty
-                ownAim = t
-            }
-            if aims.contains("Een tijd neerzetten"), aimTime.trimmingCharacters(in: .whitespaces).isEmpty {
+            // Your aim stays in your own words. Only a time without a number gets a question.
+            ownAim = t
+            aimTime = ""
+            wantsTime = false
+            let l = t.lowercased()
+            if l.contains("tijd"), !l.contains(where: \.isNumber), !NewGoalView.saysNo(t) {
+                wantsTime = true
                 askedTime = true
                 return .ask("Welke tijd wil je neerzetten? Typ bijvoorbeeld 1:55 of onder de 2 uur.")
             }
@@ -1030,8 +1005,9 @@ struct NewGoalView: View {
         case .level:
             level = value
         case .aim:
-            ownAimOn = true
             ownAim = value
+            aimTime = ""
+            wantsTime = false
         case .wishes:
             ownWish = value
         default:
@@ -1072,7 +1048,7 @@ struct NewGoalView: View {
         case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Wil je dat, of heb je al een schema? Later mag ook."
         case .perWeek: return "Hoe vaak per week wil je hardlopen? Twijfel je, dan is 3 keer een mooi begin."
         case .level: return "Hoe ver kun je nu lopen, en hoe zwaar voelt dat? Bijvoorbeeld: 5 km lukt, maar het is zwaar."
-        case .aim: return "Wat wil je halen? Bijvoorbeeld uitlopen of een tijd neerzetten. Kies er een of meer, of typ het zelf."
+        case .aim: return "Wat wil je halen? Bijvoorbeeld uitlopen, een tijd neerzetten of sneller worden. Zeg het gerust in je eigen woorden."
         case .wishes: return "Heb je wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
         case .paste: return "Plak hier het hele antwoord van je AI-app, met alle trainingen erin."
         default: return "Kies gerust een van de knoppen hieronder."
@@ -1097,8 +1073,6 @@ struct NewGoalView: View {
         clearComposer()
         goNext()
     }
-
-    private let wishChoices = ["Lange duurloop in het weekend", "Heuvels", "Geen intervallen", "Rustig opbouwen", "Vaste trainingsdagen"]
 
     // MARK: - Reading typed answers
 
@@ -1397,22 +1371,15 @@ struct NewGoalView: View {
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
-    private let aimChoices = ["Uitlopen", "Een tijd neerzetten", "Sneller worden", "Fit blijven"]
-
-    /// "Uitlopen, Een tijd neerzetten: 1:20, plezier houden"
+    /// Your aim as you said it, with the time after it when Rondje asked for one: "een tijd neerzetten: 1:55".
     private var aimText: String {
-        let time = aimTime.trimmingCharacters(in: .whitespaces)
-        var parts = aimChoices.filter { aims.contains($0) }.map { choice in
-            choice == "Een tijd neerzetten" && !time.isEmpty ? "\(choice): \(time)" : choice
-        }
         let own = ownAim.trimmingCharacters(in: .whitespacesAndNewlines)
-        if ownAimOn && !own.isEmpty { parts.append(own) }
-        return parts.joined(separator: ", ")
+        let time = aimTime.trimmingCharacters(in: .whitespacesAndNewlines)
+        return time.isEmpty ? own : "\(own): \(time)"
     }
 
     private var wishText: String {
-        let own = ownWish.trimmingCharacters(in: .whitespaces)
-        return (wishes.sorted() + (own.isEmpty ? [] : [own])).joined(separator: ", ")
+        ownWish.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var prompt: String {
