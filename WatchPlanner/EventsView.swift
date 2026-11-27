@@ -35,7 +35,7 @@ struct EventsView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showNewEvent) { NewGoalView() }
+            .sheet(isPresented: $showNewEvent) { NewGoalFlow() }
         }
     }
 

@@ -34,21 +34,41 @@ struct EventView: View {
         .alert(item: $message) { m in Alert(title: Text(m.title), message: Text(m.text)) }
     }
 
-    private func content(_ event: TrainingSchedule) -> some View {
-        List {
-            if let raceDay = event.raceDate.flatMap(ScheduleDates.day) {
-                HStack(spacing: 12) {
-                    KindIcon(kind: .race)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("De grote dag").font(.caption).foregroundStyle(.secondary)
-                        Text(Format.day(event.raceDate ?? "")).font(.headline)
-                    }
-                    Spacer()
-                    Text(Format.countdown(to: raceDay))
-                        .font(.system(.subheadline, design: .rounded).bold())
+    /// The goal itself, big at the top: the runner on the way to the big day.
+    private func hero(_ event: TrainingSchedule) -> some View {
+        let behind = event.workouts.filter { ScheduleDates.isPast($0.date) || health.done[$0.id] != nil }.count
+        let left = event.workouts.count - behind
+        let raceDay = event.raceDate.flatMap(ScheduleDates.day)
+        // A trail by its name, or by the hills in its schedule.
+        let trail = event.name.lowercased().contains("trail")
+            || event.workouts.contains { $0.name.lowercased().contains("heuvel") }
+        let countdown = raceDay.map { Format.countdown(to: $0) }
+        return ZStack(alignment: .topLeading) {
+            GoalHero(trail: trail, progress: event.workouts.isEmpty ? 0 : Double(behind) / Double(event.workouts.count))
+            VStack(alignment: .leading, spacing: 2) {
+                if let countdown {
+                    Text("De grote dag").font(.caption).foregroundStyle(.secondary)
+                    Text(countdown.prefix(1).uppercased() + countdown.dropFirst())
+                        .font(.system(.title2, design: .rounded).bold())
+                        .foregroundStyle(Theme.accent)
+                    Text(Format.day(event.raceDate ?? "")).font(.subheadline)
+                } else if !event.workouts.isEmpty {
+                    Text("Nog te gaan").font(.caption).foregroundStyle(.secondary)
+                    Text(left == 1 ? "1 training" : "\(left) trainingen")
+                        .font(.system(.title2, design: .rounded).bold())
                         .foregroundStyle(Theme.accent)
                 }
             }
+            .padding(16)
+            .accessibilityElement(children: .combine)
+        }
+        .frame(height: 190)
+        .listRowInsets(EdgeInsets())
+    }
+
+    private func content(_ event: TrainingSchedule) -> some View {
+        List {
+            hero(event)
             if event.workouts.isEmpty {
                 VStack(spacing: 14) {
                     Image(systemName: "list.bullet.rectangle")
