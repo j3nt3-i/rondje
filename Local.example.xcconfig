@@ -1,0 +1,7 @@
+// Your own signing. Copy this file to Local.xcconfig (git ignores that one) and fill it in.
+
+// Your Apple team id, 10 characters. The README says how to find it.
+DEVELOPMENT_TEAM = ABCDE12345
+
+// Any id nobody else uses, for example nl.yourname.rondje
+BUNDLE_ID = nl.yourname.rondje

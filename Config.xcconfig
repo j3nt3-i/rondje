@@ -1,0 +1,6 @@
+// Signing is per person, so it is not in the repo.
+// Copy Local.example.xcconfig to Local.xcconfig and fill in your own team and bundle id.
+DEVELOPMENT_TEAM =
+BUNDLE_ID = nl.example.rondje
+
+#include? "Local.xcconfig"

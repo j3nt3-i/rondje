@@ -4,33 +4,62 @@ Personal iPhone app that puts structured runs in the Workout app on Apple Watch,
 
 With a free Apple ID the app expires after 7 days. Run the commands below to rebuild and reinstall. Your events survive a reinstall; they live in `events.json` in the app's Documents folder.
 
-## Rebuild and reinstall
+## Set up on a new Mac
 
-Xcode lives in `~/Downloads/Xcode.app` on this Mac, so point the tools at it:
+You need Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen). The Xcode project is generated from `project.yml` and is not in the repo.
 
 ```bash
-export DEVELOPER_DIR="$HOME/Downloads/Xcode.app/Contents/Developer"
+brew install xcodegen
 ```
 
-Connect and unlock the iPhone, then generate the project:
+Signing is per person. Your team and bundle id go in `Local.xcconfig`, which git ignores:
+
+```bash
+cp Local.example.xcconfig Local.xcconfig
+```
+
+Fill in two values there:
+
+- `BUNDLE_ID`: any id nobody else uses, for example `nl.yourname.rondje`.
+- `DEVELOPMENT_TEAM`: your Apple team id. A free Apple ID works, also for Apple Health. To find the id: sign in at Xcode > Settings > Accounts, run `xcodegen generate`, open `WatchPlanner.xcodeproj`, and pick your team under Signing & Capabilities. Then read it back:
+
+```bash
+grep -m1 DEVELOPMENT_TEAM WatchPlanner.xcodeproj/project.pbxproj
+```
+
+Generate the project again after every change to `project.yml` or the config files, and after adding or removing a Swift file:
 
 ```bash
 xcodegen generate
 ```
 
-Build and sign (this also renews the 7-day profile):
+Then open `WatchPlanner.xcodeproj`, choose your iPhone and press Run. Or use the commands below.
+
+## Rebuild and reinstall
+
+If Xcode is not in `/Applications`, point the tools at it first:
 
 ```bash
-xcodebuild -project WatchPlanner.xcodeproj -scheme WatchPlanner -destination id=00008150-00112C3A3693C01C -derivedDataPath build -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
+export DEVELOPER_DIR="$HOME/Downloads/Xcode.app/Contents/Developer"
+```
+
+Find your iPhone's identifier (connect and unlock it first):
+
+```bash
+xcrun devicectl list devices
+```
+
+Build and sign, with your own identifier in place of `PHONE_ID` (this also renews the 7-day profile):
+
+```bash
+xcodebuild -project WatchPlanner.xcodeproj -scheme WatchPlanner -destination id=PHONE_ID -derivedDataPath build -allowProvisioningUpdates -allowProvisioningDeviceRegistration build
 ```
 
 Install:
 
 ```bash
-xcrun devicectl device install app --device 00008150-00112C3A3693C01C build/Build/Products/Debug-iphoneos/WatchPlanner.app
+xcrun devicectl device install app --device PHONE_ID build/Build/Products/Debug-iphoneos/WatchPlanner.app
 ```
-
-The team ID (`YZV5DX4L6Y`, Personal Team) is set in `project.yml`. `00008150-00112C3A3693C01C` is the iPhone 17 Pro; for another phone, find its identifier with `xcrun devicectl list devices`.
 
 ## First install on the phone
 
@@ -39,7 +68,7 @@ The team ID (`YZV5DX4L6Y`, Personal Team) is set in `project.yml`. `00008150-001
 
 ## Adding workouts
 
-Every text screen has a "Klaar" button above the keyboard, and scrolling down hides the keyboard.
+Scrolling down hides the keyboard.
 
 Write workouts the way you would say them. The app reads the text with its own rules first (instant, offline). When the rules fail, or leave numbers they could not place, Apple Intelligence (on device, iOS 26+, when turned on) rewrites that part to the short format and the rules check it again. Workouts read this way are marked in the preview. Nothing is saved before you confirm.
 
@@ -75,6 +104,13 @@ In an event, a workout says "Op Watch" on its day once it is scheduled (the Watc
 
 In a workout, "Voeg toe aan je workouts" opens Apple's preview; adding there puts it straight in your own workouts on the Watch, without a date. Apple does not tell the app whether you tapped add, so closing the preview counts as added and the list shows "Bij workouts". Tap "Weg" in the workout to undo.
 
+
+## Apple Health
+
+Rondje only reads from Apple Health and stores nothing of it. Without permission everything else works as before.
+
+- **Ticking off**: on the home screen, "Koppel Apple Health". A planned workout gets a tick when Health has a run for it: exactly when you started it from Rondje on the Watch, otherwise any run on that day.
+- **Your level in the chat**: at the question about your level, Rondje says what Health shows (runs and km in the last 4 weeks, longest run in 3 months, average pace, VO2max). Only after "Klopt" does it go into the prompt.
 
 ## Check that it worked
 
