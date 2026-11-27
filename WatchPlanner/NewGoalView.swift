@@ -82,6 +82,9 @@ struct NewGoalView: View {
     @State private var askedTime = false
     // Your answers exactly as you typed them. Your bubbles show these, never a rewritten version.
     @State private var typedAnswers: [Step: String] = [:]
+    // Questions you already answered inside another answer ("Polar Bear Trail op 10 januari"):
+    // Rondje says what it read and does not ask them again.
+    @State private var answeredAlong: Set<Step> = []
 
     private struct Correction: Identifiable {
         let id = UUID()
@@ -129,7 +132,7 @@ struct NewGoalView: View {
                                 .foregroundStyle(.secondary)
                                 .padding(.bottom, 8)
                         }
-                        ForEach(pastSteps, id: \.self) { s in
+                        ForEach(pastSteps.filter { !answeredAlong.contains($0) }, id: \.self) { s in
                             botBubbles(question(s), at: s)
                             correctionBubbles(at: s)
                             userBubble(typedAnswers[s] ?? answer(s)) { jump(to: s) }
@@ -266,15 +269,17 @@ struct NewGoalView: View {
             step = resume
         } else {
             resumeAt = nil
-            guard let i = path.firstIndex(of: step), i + 1 < path.count else { return }
-            step = path[i + 1]
+            guard let i = path.firstIndex(of: step),
+                  let next = path[(i + 1)...].first(where: { !answeredAlong.contains($0) }) else { return }
+            step = next
         }
         keepKeyboardOnlyWhenTyping()
     }
 
     private func goBack() {
-        guard let i = path.firstIndex(of: step), i > 0 else { return }
-        step = path[i - 1]
+        guard let i = path.firstIndex(of: step),
+              let before = path[..<i].last(where: { !answeredAlong.contains($0) }) else { return }
+        step = before
         keepKeyboardOnlyWhenTyping()
     }
 
@@ -337,7 +342,10 @@ struct NewGoalView: View {
             let cal = Calendar.current
             let n = cal.dateComponents([.day], from: cal.startOfDay(for: .now), to: cal.startOfDay(for: bigDay)).day ?? 0
             // Say the full date back, so you can see it was read right.
-            let day = Format.day(dayString(bigDay))
+            // When it came along with your goal, say both: the name and the day.
+            let day = answeredAlong.contains(.date)
+                ? "\(trimmedName.prefix(1).uppercased() + trimmedName.dropFirst()) op \(Format.day(dayString(bigDay)).lowercased())"
+                : Format.day(dayString(bigDay))
             if n < 21 { return "\(day), nog maar \(n) dagen. We gaan ervoor." }
             if n < 120 { return "\(day), nog \(n) dagen. Mooi op tijd." }
             return "\(day), nog \(n) dagen. Lekker veel tijd om op te bouwen."
@@ -1160,6 +1168,12 @@ struct NewGoalView: View {
                 return
             }
         }
+        // Your level, aim and wishes go into the prompt in your own words. There is nothing to
+        // understand there, so nothing to ask again: only a question back or a clear change is read.
+        if [.level, .aim, .wishes].contains(step), !t.isEmpty, !t.contains("?"), !NewGoalView.soundsLikeChange(t) {
+            act(on: take(t), said: t)
+            return
+        }
         if !t.isEmpty, WorkoutAI.isAvailable, let field = NewGoalView.aiFields[step] {
             let earlier = pastSteps.compactMap { s in NewGoalView.aiFields[s].map { ($0, answer(s)) } }
             let turn = await understand { await WorkoutAI.readTurn(t, question: lastAsked, current: field, earlier: earlier) } ?? nil
@@ -1362,9 +1376,23 @@ struct NewGoalView: View {
         switch step {
         case .name:
             let match = goalPresets.first { $0.title.lowercased() == t.lowercased() }
+            // A day in the same message ("Polar Bear Trail op 10 januari") answers the next question too.
+            // Look in what you typed, also when Apple Intelligence picked out only the name.
+            let found = match == nil ? NewGoalView.dateInText(pending ?? t) : nil
+            let bare = found == nil ? t : NewGoalView.withoutDate(t)
+            guard !bare.trimmingCharacters(in: .whitespaces).isEmpty else {
+                // Only a day, no goal: keep the question open.
+                return .no
+            }
             ownName = match == nil
-            name = match?.title ?? t
-            return nameOK ? .ok : .no
+            name = match?.title ?? bare
+            guard nameOK else { return .no }
+            if let found {
+                bigDay = found
+                hasDate = true
+                answeredAlong.insert(.date)
+            }
+            return .ok
         case .trail where trailMissing != nil:
             // The follow-up: "weet ik niet" keeps what you said, a number fills the missing part.
             if NewGoalView.saysNo(t) { break }
@@ -1661,16 +1689,28 @@ struct NewGoalView: View {
 
     /// Finds a date inside a sentence: "oeps, het is eigenlijk 15 december".
     /// Only explicit dates count here, not a loose weekday ("lange duurloop toch op zondag").
+    private static let datePatterns = [
+        #"\b\d{1,2}\s+(?:jan|feb|mrt|maa|apr|mei|jun|jul|aug|sep|okt|nov|dec)[a-z]*(?:\s+\d{4})?"#,
+        #"\b\d{1,2}[-/]\d{1,2}(?:[-/]\d{4})?\b"#,
+    ]
+
     static func dateInText(_ text: String, now: Date = .now) -> Date? {
         let l = text.lowercased()
-        let patterns = [
-            #"\b\d{1,2}\s+(?:jan|feb|mrt|maa|apr|mei|jun|jul|aug|sep|okt|nov|dec)[a-z]*(?:\s+\d{4})?"#,
-            #"\b\d{1,2}[-/]\d{1,2}(?:[-/]\d{4})?\b"#,
-        ]
-        for p in patterns {
+        for p in datePatterns {
             if let r = l.range(of: p, options: .regularExpression), let d = date(from: String(l[r]), now: now) { return d }
         }
         return nil
+    }
+
+    /// "Polar Bear Trail op 10 januari" -> "Polar Bear Trail": the name without the day in it.
+    static func withoutDate(_ text: String) -> String {
+        var t = text
+        for p in datePatterns {
+            // With the little words that lead up to the day: "op", "is op", "van", a comma.
+            t = t.replacingOccurrences(of: #"[\s,]*(?:\b(?:is|die|dat|en|het)\s+)?(?:\b(?:op|van|rond|rondom)\s+)?"# + p,
+                                       with: "", options: [.regularExpression, .caseInsensitive])
+        }
+        return t.trimmingCharacters(in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: ",.")))
     }
 
     /// Something that looks like a number: digits or a number word.
