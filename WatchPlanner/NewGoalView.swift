@@ -11,6 +11,7 @@ import UIKit
 struct NewGoalView: View {
     @Environment(ScheduleStore.self) private var store
     @Environment(Planner.self) private var planner
+    @Environment(HealthLog.self) private var health
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.scenePhase) private var scenePhase
@@ -40,6 +41,14 @@ struct NewGoalView: View {
     @AppStorage("prompt.perWeek") private var perWeek = 3
     @AppStorage("prompt.level") private var level = ""
     @State private var ownLevel = ""
+    // What Apple Health shows about your running. Only kept while this chat is open, never stored.
+    @State private var healthLevel: RunLevel?
+    // It was there before Rondje asked for your level, so the question itself shows it.
+    @State private var healthFirst: RunLevel?
+    // "Gebruik dit niet": Apple Health stays out of your prompt.
+    @State private var skipHealth = false
+    // Rondje looked and found nothing, so it does not offer to look again.
+    @State private var healthEmpty = false
     @State private var ownAim = ""
     @State private var aimTime = ""
     @State private var wantsTime = false   // you want a time and Rondje asked which
@@ -152,6 +161,8 @@ struct NewGoalView: View {
                 .scrollDismissesKeyboard(.interactively)
                 .onChange(of: botTyping) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: pending) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
+                // An answer that came from a pill, like "Kijk in Apple Health": down to what Rondje says back.
+                .onChange(of: corrections.count) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: streamed) { proxy.scrollTo("bottom", anchor: .bottom) }
                 .onChange(of: streaming) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
                 .onChange(of: isReading) { withAnimation { proxy.scrollTo("bottom", anchor: .bottom) } }
@@ -217,6 +228,13 @@ struct NewGoalView: View {
             }
             .task(id: "\(text)|\(weekStart)") { await read() }
             .task { WorkoutAI.prewarm() }
+            .task {
+                // Only while the question is still to come: a question on screen never changes under you,
+                // and nothing goes into your prompt that Rondje has not shown you.
+                guard let found = await health.level(), step != .level, !pastSteps.contains(.level) else { return }
+                healthLevel = found
+                healthFirst = found
+            }
             .task(id: morphTrigger) { await runShow() }
             .onChange(of: scenePhase) { _, phase in
                 // Back from the AI app: the next step is pasting the answer.
@@ -342,7 +360,10 @@ struct NewGoalView: View {
         case .date: return "Wanneer is de grote dag?"
         case .method: return "Zal ik je helpen met een schema? Of heb je er al een?"
         case .perWeek: return "Hoe vaak per week wil je lopen?"
-        case .level: return "Wat lukt je nu? En hoe zwaar voelt dat?"
+        case .level:
+            // Rondje says what it read, so you can see it and say whether it still holds.
+            if let healthFirst { return "In Apple Health zie ik dit. \(healthFirst.said) \(NewGoalView.healthCheck)" }
+            return "Wat lukt je nu? En hoe zwaar voelt dat?"
         case .aim: return "Wat wil je bereiken? Bijvoorbeeld uitlopen, een tijd neerzetten of sneller worden."
         case .wishes: return "Nog wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend, heuvels, of nooit op woensdag."
         case .copy: return "Je prompt is klaar. Kopieer hem, dan open je zo je AI-app."
@@ -364,7 +385,7 @@ struct NewGoalView: View {
         case .method:
             switch method { case .ai: return "Help me ermee"; case .paste: return "Ik plak of typ het zelf"; case .later: return "Doe ik later" }
         case .perWeek: return "\(perWeek)x per week"
-        case .level: return level
+        case .level: return level.isEmpty && measured != nil ? "Klopt" : level
         case .aim: return aimText
         case .wishes: return wishText.isEmpty ? "Geen" : wishText
         case .copy: return "Gekopieerd"
@@ -433,6 +454,7 @@ struct NewGoalView: View {
                 summaryRow("flag.checkered", trimmedName)
                 if hasDate { summaryRow("calendar", Format.day(dayString(bigDay))) }
                 summaryRow("figure.run", "\(perWeek)x per week")
+                if let measured { summaryRow("heart", measured.short) }
                 if !level.isEmpty { summaryRow("chart.bar", level) }
                 if !aimText.isEmpty { summaryRow("target", aimText) }
                 if !wishText.isEmpty { summaryRow("star", wishText) }
@@ -1027,8 +1049,23 @@ struct NewGoalView: View {
                 GoalPill(icon: g.icon, title: g.title, isOn: false) { answerName(g.title, preset: true) }
             }
         case .level:
-            ForEach(levels, id: \.self) { l in
-                GoalPill(title: l, isOn: false) { level = l; typedAnswers[.level] = nil; goNext() }
+            if measured != nil {
+                GoalPill(icon: "checkmark", title: "Klopt", isOn: false) { level = ""; typedAnswers[.level] = "Klopt"; goNext() }
+                GoalPill(title: "Gebruik dit niet", isOn: false) { dropHealth("Gebruik dit niet") }
+                if health.canAskLevel {
+                    GoalPill(icon: "heart.fill", title: "Neem ook mijn VO2max mee", isOn: false) {
+                        Task { await lookInHealth("Neem ook mijn VO2max mee") }
+                    }
+                }
+            } else {
+                ForEach(levels, id: \.self) { l in
+                    GoalPill(title: l, isOn: false) { level = l; typedAnswers[.level] = nil; goNext() }
+                }
+                if !healthEmpty, health.canAskLevel || health.asked {
+                    GoalPill(icon: "heart.fill", title: "Kijk in Apple Health", isOn: false) {
+                        Task { await lookInHealth("Kijk in Apple Health") }
+                    }
+                }
             }
         case .wishes:
             GoalPill(title: "Geen wensen", isOn: false) { ownWish = ""; typedAnswers[.wishes] = "Geen wensen"; goNext() }
@@ -1061,7 +1098,7 @@ struct NewGoalView: View {
         case .date: return "Bijv. 13 december, of nog geen datum"
         case .method: return "Bijv. ja graag, ik heb er al een, of later"
         case .perWeek: return "Bijv. 4"
-        case .level: return "Of vertel het zelf, bijv. 2x per week 6 km"
+        case .level: return measured != nil ? "Of vertel er iets bij, bijv. het voelt zwaar" : "Of vertel het zelf, bijv. 2x per week 6 km"
         case .aim: return askedTime ? "Bijv. 1:55 of onder de 2 uur" : "Bijv. uitlopen, of onder de 2 uur"
         case .wishes: return "Bijv. nooit op woensdag"
         case .paste: return method == .ai ? "Of plak het antwoord hier" : "Plak of typ je schema"
@@ -1171,8 +1208,51 @@ struct NewGoalView: View {
         case .method: return NewGoalView.yesNo[t.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))] != nil
         case .perWeek: return t.range(of: #"^[1-7]\s*(x|keer)?(\s*per week)?$"#, options: [.regularExpression, .caseInsensitive]) != nil
         case .date: return NewGoalView.date(from: t) != nil || NewGoalView.dayNumber(t) != nil || NewGoalView.monthNumber(t) != nil
+        case .level: return measured != nil && NewGoalView.agrees(t) != nil
         default: return false
         }
+    }
+
+    /// "klopt", "ja" -> true; "klopt niet", "nee" -> false; anything else is not a yes or a no.
+    static func agrees(_ t: String) -> Bool? {
+        let l = t.lowercased().trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+        if ["klopt", "dat klopt", "ja klopt", "ja dat klopt", "klopt wel", "klopt nog"].contains(l) { return true }
+        if ["klopt niet", "dat klopt niet", "nee klopt niet", "klopt niet meer"].contains(l) { return false }
+        return yesNo[l].map { $0 == "Ja" }
+    }
+
+    // MARK: - Apple Health
+
+    /// The Health facts that are on screen and go into your prompt.
+    private var measured: RunLevel? { skipHealth ? nil : healthLevel }
+
+    private static let healthCheck = "Klopt dat nog? Dan zet ik het in je prompt."
+    private static let healthDropped = "Prima, dan laat ik Apple Health erbuiten. Wat lukt je nu? En hoe zwaar voelt dat?"
+
+    /// Asks Apple Health (with Apple's own sheet when that is still needed) and says what it shows.
+    private func lookInHealth(_ said: String) async {
+        let shown = measured
+        if health.canAskLevel { await health.connect() }
+        guard let found = await health.level() else {
+            healthEmpty = true
+            reply(said, "Ik zie in Apple Health geen loopjes van de laatste 3 maanden. Vertel het zelf maar: wat lukt je nu?")
+            return
+        }
+        healthLevel = found
+        skipHealth = false
+        if shown != nil {
+            // The rest was already on screen: only say what is new.
+            reply(said, found.vo2Max.map { "Je VO2max is \(RunLevel.vo2Text($0)). Die zet ik er ook bij." }
+                  ?? "Ik zie geen VO2max in Apple Health. De rest blijft staan.")
+        } else {
+            reply(said, "\(found.said) \(NewGoalView.healthCheck)")
+        }
+    }
+
+    /// Apple Health stays out of the prompt; Rondje asks for your level the usual way.
+    private func dropHealth(_ said: String) {
+        skipHealth = true
+        reply(said, NewGoalView.healthDropped)
     }
 
     private static let aiFields: [Step: WorkoutAI.Field] = [
@@ -1357,7 +1437,16 @@ struct NewGoalView: View {
             guard let n = NewGoalView.count(from: t), (1...7).contains(n) else { return .no }
             perWeek = n
         case .level:
-            level = t
+            // "Klopt" or "nee" about what Apple Health shows is not your level in your own words.
+            if measured != nil, let yes = NewGoalView.agrees(t) {
+                guard yes else {
+                    skipHealth = true
+                    return .ask(NewGoalView.healthDropped)
+                }
+                level = ""
+            } else {
+                level = t
+            }
         case .aim where askedTime:
             // The answer to "welke tijd?" is the time, in your own words.
             // "Weet ik nog niet" is fine: a time can come later, and it is not stored as the time.
@@ -1510,7 +1599,9 @@ struct NewGoalView: View {
         case .date: return "Op welke dag is je wedstrijd of doel? Typ bijvoorbeeld 13 december, of nog geen datum."
         case .method: return "Ik kan je helpen een schema te maken met je eigen AI, zoals Claude of ChatGPT. Wil je dat, of heb je al een schema? Later mag ook."
         case .perWeek: return "Hoe vaak per week wil je hardlopen? Twijfel je, dan is 3 keer een mooi begin."
-        case .level: return "Hoe ver kun je nu lopen, en hoe zwaar voelt dat? Bijvoorbeeld: 5 km lukt, maar het is zwaar."
+        case .level:
+            if measured != nil { return "Klopt wat ik in Apple Health zie? Tik dan op Klopt. Je mag er ook bij vertellen hoe zwaar het lopen nu voelt." }
+            return "Hoe ver kun je nu lopen, en hoe zwaar voelt dat? Bijvoorbeeld: 5 km lukt, maar het is zwaar."
         case .aim: return "Wat wil je halen? Bijvoorbeeld uitlopen, een tijd neerzetten of sneller worden. Zeg het gerust in je eigen woorden."
         case .wishes: return "Heb je wensen voor je schema? Bijvoorbeeld een lange duurloop in het weekend of nooit op woensdag. Geen wensen mag ook."
         case .paste: return "Plak hier het hele antwoord van je AI-app, met alle trainingen erin."
@@ -1847,7 +1938,7 @@ struct NewGoalView: View {
 
     private var prompt: String {
         WorkoutText.claudePrompt(event: trimmedName, raceDate: hasDate ? bigDay : nil, perWeek: perWeek,
-                                 level: level, goal: aimText, wishes: wishText, details: details)
+                                 level: level, health: measured?.prompt ?? "", goal: aimText, wishes: wishText, details: details)
     }
 
     // MARK: - Reading the schedule

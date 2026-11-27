@@ -27,7 +27,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: Rondje
         INFOPLIST_KEY_UIUserInterfaceStyle: Dark
-        INFOPLIST_KEY_NSHealthShareUsageDescription: "Rondje kijkt welke loopjes je hebt gedaan, om je trainingen af te vinken."
+        INFOPLIST_KEY_NSHealthShareUsageDescription: "Rondje kijkt welke loopjes je hebt gedaan, om je trainingen af te vinken en je niveau in je prompt te zetten."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         OTHER_LDFLAGS: "-weak_framework FoundationModels"

@@ -503,7 +503,7 @@ enum WorkoutText {
 
     /// Prompt for Claude with what we know about the event and the runner.
     static func claudePrompt(event: String, raceDate: Date?, perWeek: Int = 3,
-                             level: String = "", goal: String = "", wishes: String = "",
+                             level: String = "", health: String = "", goal: String = "", wishes: String = "",
                              details: String = "", today: Date = .now) -> String {
         let f = DateFormatter()
         f.locale = Locale(identifier: "nl_NL")
@@ -521,7 +521,8 @@ enum WorkoutText {
         if !details.isEmpty { about.append(details) }
         about.append("Vandaag is het \(f.string(from: today)). Begin het schema vanaf morgen.")
         about.append("Ik wil \(perWeek) keer per week lopen.")
-        for (label, value) in [("Mijn niveau nu", level), ("Mijn doel", goal), ("Wensen", wishes)] {
+        // Health first: what was measured, then what you say about it yourself.
+        for (label, value) in [("Uit mijn Apple Health", health), ("Mijn niveau nu", level), ("Mijn doel", goal), ("Wensen", wishes)] {
             let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
             if !v.isEmpty { about.append("\(label): \(v)") }
         }
