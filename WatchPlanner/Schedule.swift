@@ -219,8 +219,8 @@ extension GoalSpec {
 
 // MARK: - Store
 
-// All events, saved as events.json in Documents. On first launch the
-// bundled schedule.json (or an older pasted schedule.json) becomes the first event.
+// All events, saved as events.json in Documents. A new install starts empty;
+// an older pasted schedule.json from before goals existed becomes the first event.
 
 @MainActor
 @Observable
@@ -237,11 +237,8 @@ final class ScheduleStore {
         do {
             if FileManager.default.fileExists(atPath: eventsURL.path()) {
                 events = try JSONDecoder().decode([TrainingSchedule].self, from: Data(contentsOf: eventsURL))
-            } else {
-                let url = FileManager.default.fileExists(atPath: oldScheduleURL.path())
-                    ? oldScheduleURL
-                    : Bundle.main.url(forResource: "schedule", withExtension: "json")
-                if let url { events = [try TrainingSchedule.decode(Data(contentsOf: url))] }
+            } else if FileManager.default.fileExists(atPath: oldScheduleURL.path()) {
+                events = [try TrainingSchedule.decode(Data(contentsOf: oldScheduleURL))]
             }
             loadError = nil
         } catch {

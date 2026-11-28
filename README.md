@@ -1,6 +1,6 @@
 # Rondje
 
-Personal iPhone app that puts structured runs in the Workout app on Apple Watch, using WorkoutKit's `WorkoutScheduler`. Workouts are grouped in goals ("doelen" in the app, stored as events: a race with its training schedule). The bundled `schedule.json` (Devil's Trail) is the first event.
+Personal iPhone app that puts structured runs in the Workout app on Apple Watch, using WorkoutKit's `WorkoutScheduler`. Workouts are grouped in goals ("doelen" in the app, stored as events: a race with its training schedule). A new install starts empty, with a welcome screen.
 
 With a free Apple ID the app expires after 7 days. Run the commands below to rebuild and reinstall. Your events survive a reinstall; they live in `events.json` in the app's Documents folder.
 
